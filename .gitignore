@@ -39,3 +39,12 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# raw SEC downloads (rebuilt by npm run data:fetch)
+/.cache/
+
+# playwright
+/test-results/
+/playwright-report/
+/blob-report/
+/lighthouse/
