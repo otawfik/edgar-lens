@@ -13,7 +13,8 @@
     "test:e2e": "playwright test",
     "data:fetch": "tsx scripts/fetch-sec.ts",
     "data:build": "tsx scripts/build-snapshot.ts",
-    "data:refresh": "tsx scripts/fetch-sec.ts --force && tsx scripts/build-snapshot.ts"
+    "data:refresh": "tsx scripts/fetch-sec.ts --force && tsx scripts/build-snapshot.ts",
+    "codegen": "graphql-codegen --config codegen.ts"
   },
   "dependencies": {
     "@emotion/cache": "^11.14.0",
@@ -33,6 +34,10 @@
     "react-redux": "^9.3.1"
   },
   "devDependencies": {
+    "@graphql-codegen/cli": "^8.0.0",
+    "@graphql-codegen/typescript": "^7.0.0",
+    "@graphql-codegen/typescript-operations": "^7.0.0",
+    "@graphql-codegen/typescript-resolvers": "^7.0.0",
     "@playwright/test": "^1.65.0",
     "@testing-library/dom": "^10.4.2",
     "@testing-library/jest-dom": "^7.0.1",
