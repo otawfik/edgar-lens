@@ -1,0 +1,114 @@
+import { expect, test } from "@playwright/test";
+
+test.describe("home", () => {
+  test("shows revision statistics and leads to a company", async ({ page }) => {
+    await page.goto("/");
+    await expect(page.getByRole("heading", { level: 1 })).toContainText("Rewind any company");
+    await expect(page.getByText("Reported figures")).toBeVisible();
+    await expect(page.getByRole("grid", { name: "Revision league table" })).toBeVisible();
+    // The league table is sorted by rate; its first ticker is a link to the company page.
+    const first = page.getByRole("grid", { name: "Revision league table" }).getByRole("row").nth(1).getByRole("link").first();
+    const ticker = (await first.textContent())!.trim();
+    await first.click();
+    await expect(page).toHaveURL(new RegExp(`/company/${ticker}`));
+    await expect(page.getByTestId("date-scrubber")).toBeVisible();
+  });
+
+  test("search jumps to a company by ticker", async ({ page }) => {
+    await page.goto("/");
+    const box = page.getByRole("combobox", { name: "Find a company" }).first();
+    await box.fill("ibm");
+    await page.getByRole("option", { name: /IBM/ }).first().click();
+    await expect(page).toHaveURL(/\/company\/IBM/);
+    await expect(page.getByRole("heading", { level: 1 })).toContainText(/international business machines/i);
+  });
+});
+
+test.describe("company rewind", () => {
+  test("rewinds figures with the scrubber and syncs the URL", async ({ page }) => {
+    await page.goto("/company/GE");
+    await expect(page.getByTestId("as-of-label")).toHaveText(/Today/);
+    const table = page.getByRole("table", { name: "Financial line items by period" });
+    await expect(table).toBeVisible();
+    const todayFirstCell = await table.getByRole("row").nth(1).getByRole("cell").nth(1).textContent();
+
+    // Step back to the previous filing: the as-of date, the URL and the figures change.
+    await page.getByRole("button", { name: "Previous filing" }).click();
+    await expect(page.getByTestId("as-of-label")).not.toHaveText(/Today/);
+    await expect(page).toHaveURL(/asOf=\d{4}-\d{2}-\d{2}/);
+
+    // Rewind far enough that restated history differs from today's.
+    await page.goto("/company/GE?asOf=2019-06-30");
+    await expect(page.getByTestId("as-of-label")).toHaveText("Jun 30, 2019");
+    await expect(table).toBeVisible();
+    const rewoundFirstCell = await table.getByRole("row").nth(1).getByRole("cell").nth(1).textContent();
+    expect(rewoundFirstCell).not.toEqual(todayFirstCell);
+    // Cells later changed by the company are marked.
+    expect(await table.locator("td[data-changed]").count()).toBeGreaterThan(0);
+    await expect(page.getByText(/periods later changed/)).toBeVisible();
+
+    // Jump to today clears the date from the URL.
+    await page.getByRole("button", { name: "Jump to today" }).click();
+    await expect(page.getByTestId("as-of-label")).toHaveText(/Today/);
+    await expect(page).not.toHaveURL(/asOf=/);
+  });
+
+  test("keyboard: the slider moves with arrow keys", async ({ page }) => {
+    await page.goto("/company/AAPL");
+    const slider = page.getByRole("slider", { name: "Filing date to rewind to" });
+    await slider.focus();
+    await page.keyboard.press("ArrowLeft");
+    await expect(page).toHaveURL(/asOf=/);
+    await expect(page.getByTestId("as-of-label")).not.toHaveText(/Today/);
+  });
+
+  test("diffs two dates and links each revision to its EDGAR filing", async ({ page }) => {
+    await page.goto("/company/GE?asOf=2020-06-30&vs=2019-06-30");
+    const panel = page.getByTestId("diff-panel");
+    await expect(panel.getByTestId("material-count")).toContainText(/\d+ material revisions?/);
+    const rows = panel.getByRole("table", { name: "Revised figures" }).getByRole("row");
+    expect(await rows.count()).toBeGreaterThan(1);
+    const link = rows.nth(1).getByRole("link").first();
+    await expect(link).toHaveAttribute("href", /sec\.gov\/Archives\/edgar\/data\/\d+\/\d+\/.*-index\.htm$/);
+  });
+
+  test("quarterly view and period in the URL", async ({ page }) => {
+    await page.goto("/company/AAPL?period=quarterly");
+    await expect(page.getByRole("button", { name: "Quarters", pressed: true })).toBeVisible();
+    await expect(page.getByRole("table", { name: "Financial line items by period" }).getByRole("columnheader", { name: /\w{3} \d{4}/ }).first()).toBeVisible();
+    await page.getByRole("button", { name: "Fiscal years" }).click();
+    await expect(page).not.toHaveURL(/period=quarterly/);
+  });
+
+  test("unknown ticker explains itself", async ({ page }) => {
+    await page.goto("/company/NOPE");
+    await expect(page.getByText(/No company with ticker/)).toBeVisible();
+  });
+});
+
+test.describe("screener", () => {
+  test("filters by sector and preset, synced to the URL", async ({ page }) => {
+    await page.goto("/screener");
+    const count = page.getByTestId("shown-count");
+    await expect(count).not.toHaveText(/^0/);
+    const before = Number((await count.textContent())!.split("/")[0]);
+    await page.getByRole("button", { name: /^Energy · \d+$/ }).click();
+    await expect(page).toHaveURL(/sector=Energy/);
+    const after = Number((await count.textContent())!.split("/")[0]);
+    expect(after).toBeLessThan(before);
+    await page.getByRole("button", { name: "Compounders" }).click();
+    await expect(page).toHaveURL(/revenueGrowth=0\.1\.\./);
+  });
+});
+
+test.describe("accessibility & responsiveness", () => {
+  test("dark mode toggles and no horizontal overflow at phone width", async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 800 });
+    await page.goto("/company/MSFT?asOf=2022-01-01");
+    await expect(page.getByTestId("date-scrubber")).toBeVisible();
+    const scrollWidth = await page.evaluate(() => document.documentElement.scrollWidth);
+    expect(scrollWidth).toBe(375);
+    await page.getByTestId("color-mode").click();
+    await expect(page.locator("html")).toHaveClass(/dark/);
+  });
+});
