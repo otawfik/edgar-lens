@@ -1,27 +1,25 @@
 /**
- * Turn SEC "company facts" JSON into clean annual and quarterly series.
+ * Turn SEC "company facts" JSON into clean annual and quarterly series that
+ * keep their point-in-time history.
  *
  * The raw API returns every value ever tagged, from every filing: Apple's FY2022
  * revenue appears in the FY2022, FY2023 and FY2024 10-Ks (as a comparative),
  * cash-flow lines in 10-Qs are year-to-date rather than per quarter, and the
  * tag a company uses can change between years. This module:
  *
- *   1. collapses duplicates per reporting period, keeping the most recently
- *      filed value (as-restated) and remembering the first one (as-reported);
+ *   1. groups facts by reporting period and collapses them into *vintages*
+ *      (the first value filed, then each filing that changed it);
  *   2. classifies periods as annual / quarterly / instant by length;
- *   3. derives discrete quarters from YTD chains (Q2 = 6M − 3M, Q4 = FY − 9M);
+ *   3. derives discrete quarters from YTD chains (Q2 = 6M − 3M, Q4 = FY − 9M),
+ *      with the derived history recomputed at each filing date;
  *   4. resolves each metric's concept fallback chain period by period.
  *
  * Everything here is pure, so it is unit-tested against small fixtures.
  */
 import { METRICS, METRIC_IDS, type MetricDef, type MetricId } from "./concepts";
 import { addDays, fiscalYearOf, isAnnualSpan, isQuarterSpan, periodDays } from "./periods";
-import type {
-  SnapshotCompany,
-  SnapshotFiling,
-  SnapshotPoint,
-  SnapshotRevision,
-} from "./snapshot";
+import { combineVintages, toVintages, type Vintage } from "./pointInTime";
+import type { SnapshotCompany, SnapshotFiling, SnapshotPoint, SnapshotVintage } from "./snapshot";
 import type { UniverseEntry } from "../universe";
 
 export interface RawFact {
@@ -69,22 +67,17 @@ export const FILING_FORMS = new Set([
 export interface Observation {
   start: string | null;
   end: string;
-  value: number;
-  filed: string;
-  accn: string;
-  firstValue: number;
-  firstFiled: string;
-  firstAccn: string;
+  /** Value-changing vintages, in filing order; never empty. */
+  history: Vintage[];
   /** Reported in a 10-K at least once (not just a 10-Q). */
   inAnnualReport: boolean;
   /** True when computed from a YTD chain rather than tagged directly. */
   derived?: boolean;
 }
 
-const byFiled = (a: RawFact, b: RawFact) =>
-  a.filed === b.filed ? a.accn.localeCompare(b.accn) : a.filed.localeCompare(b.filed);
+export const latest = (o: Observation): Vintage => o.history[o.history.length - 1];
 
-/** One observation per (start, end) context: latest filing wins, first is kept. */
+/** One observation per (start, end) context, carrying its vintages. */
 export function collapseFacts(facts: readonly RawFact[]): Observation[] {
   const groups = new Map<string, RawFact[]>();
   for (const f of facts) {
@@ -96,18 +89,10 @@ export function collapseFacts(facts: readonly RawFact[]): Observation[] {
   }
   const out: Observation[] = [];
   for (const g of groups.values()) {
-    g.sort(byFiled);
-    const first = g[0];
-    const last = g[g.length - 1];
     out.push({
-      start: last.start ?? null,
-      end: last.end,
-      value: last.val,
-      filed: last.filed,
-      accn: last.accn,
-      firstValue: first.val,
-      firstFiled: first.filed,
-      firstAccn: first.accn,
+      start: g[0].start ?? null,
+      end: g[0].end,
+      history: toVintages(g),
       inAnnualReport: g.some((f) => f.form.startsWith("10-K")),
     });
   }
@@ -152,6 +137,8 @@ export function instantObservations(obs: Observation[]): Map<string, Observation
  * quarter is the difference between consecutive year-to-date values that share
  * a start date (Q2 = H1 − Q1, Q3 = 9M − H1, Q4 = FY − 9M). That is how
  * cash-flow statements, which 10-Qs only report YTD, get quarterly values.
+ * The derived history is recomputed at every filing date of either input, so
+ * "as of" queries on derived quarters stay honest.
  */
 export function quarterlyObservations(
   obs: Observation[],
@@ -180,16 +167,12 @@ export function quarterlyObservations(
       if (out.has(cur.end)) continue;
       const qStart = addDays(prev.end, 1);
       if (!isQuarterSpan(qStart, cur.end)) continue;
-      const later = cur.filed >= prev.filed ? cur : prev;
+      const history = combineVintages(cur.history, prev.history, (ytd, priorYtd) => ytd - priorYtd);
+      if (!history.length) continue;
       out.set(cur.end, {
         start: qStart,
         end: cur.end,
-        value: cur.value - prev.value,
-        filed: later.filed,
-        accn: later.accn,
-        firstValue: cur.firstValue - prev.firstValue,
-        firstFiled: cur.firstFiled,
-        firstAccn: cur.firstAccn,
+        history,
         inAnnualReport: cur.inAnnualReport,
         derived: true,
       });
@@ -257,11 +240,7 @@ export interface BuildOptions {
   recentFilings: number;
 }
 
-export const DEFAULT_BUILD: BuildOptions = { annualYears: 11, quarters: 12, recentFilings: 6 };
-
-/** Below these, a difference between first-reported and latest is noise. */
-const REVISION_MIN_REL = 0.005;
-const REVISION_MIN_ABS = { USD: 1_000_000, "USD/shares": 0.01 } as const;
+export const DEFAULT_BUILD: BuildOptions = { annualYears: 15, quarters: 20, recentFilings: 8 };
 
 export function buildCompany(
   entry: UniverseEntry,
@@ -341,36 +320,12 @@ export function buildCompany(
 
   const annual: SnapshotCompany["annual"] = {};
   const quarterly: SnapshotCompany["quarterly"] = {};
-  const revisions: SnapshotRevision[] = [];
-
-  const toPoints = (
-    id: MetricId,
-    period: "annual" | "quarterly",
-    m: Map<string, Observation>,
-    keep: (end: string) => boolean,
-  ): SnapshotPoint[] => {
+  const toPoints = (m: Map<string, Observation>, keep: (end: string) => boolean): SnapshotPoint[] => {
     const pts: SnapshotPoint[] = [];
     for (const o of [...m.values()].sort((a, b) => a.end.localeCompare(b.end))) {
       if (!keep(o.end)) continue;
-      pts.push([o.end, o.value, ref(o.accn)]);
-      const unit = METRICS[id].unit;
-      const diff = Math.abs(o.value - o.firstValue);
-      if (
-        !o.derived &&
-        o.accn !== o.firstAccn &&
-        diff >= REVISION_MIN_ABS[unit] &&
-        diff >= REVISION_MIN_REL * Math.max(Math.abs(o.firstValue), Math.abs(o.value))
-      ) {
-        revisions.push({
-          metric: id,
-          period,
-          end: o.end,
-          from: o.firstValue,
-          to: o.value,
-          fromFiling: ref(o.firstAccn),
-          toFiling: ref(o.accn),
-        });
-      }
+      const history: SnapshotVintage[] = o.history.map((v) => [ref(v.accn), v.value]);
+      pts.push(o.derived ? [o.end, history, 1] : [o.end, history]);
     }
     return pts;
   };
@@ -379,8 +334,8 @@ export function buildCompany(
     const r = resolved[id];
     const a = METRICS[id].kind === "stock" ? filterKeys(r.instants, annualEnds) : r.annual;
     const q = METRICS[id].kind === "stock" ? filterKeys(r.instants, quarterEnds) : r.quarterly;
-    const ap = toPoints(id, "annual", a, keepAnnual);
-    const qp = toPoints(id, "quarterly", q, (end) => keptQuarters.has(end));
+    const ap = toPoints(a, keepAnnual);
+    const qp = toPoints(q, (end) => keptQuarters.has(end));
     if (ap.length) annual[id] = ap;
     if (qp.length) quarterly[id] = qp;
   }
@@ -406,7 +361,6 @@ export function buildCompany(
       recent,
       annual,
       quarterly,
-      revisions,
     },
   };
 }

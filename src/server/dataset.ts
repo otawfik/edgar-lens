@@ -1,20 +1,29 @@
 /**
  * In-memory query layer over data/snapshot.json. Built once per server process
- * (~100 companies, ~33k points), with per-company memoisation of the things the
+ * (~100 companies, ~40k figures), with per-company memoisation of what the
  * screener asks for on every request: latest ratios and sector ranks.
+ *
+ * Every read takes an optional `asOf` date. Without it, figures are the latest
+ * reported; with it, they are what had been filed on or before that date.
  */
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { METRICS } from "@/lib/edgar/concepts";
-import type { Snapshot, SnapshotFiling, SnapshotRevision } from "@/lib/edgar/snapshot";
+import { METRICS, type MetricId } from "@/lib/edgar/concepts";
+import { changeBetween, daysBetween, isLikelySplit, isMaterialChange } from "@/lib/edgar/pointInTime";
+import { companyRevisions, type MaterialRevision } from "@/lib/edgar/revisionStats";
+import type { PeriodType, Snapshot, SnapshotFiling } from "@/lib/edgar/snapshot";
 import {
   buildFinancials,
   lookupFor,
   periodLabel,
   previousEnd,
+  valueAt,
+  vintageAt,
   yearsBefore,
   type CompanyFinancials,
   type DerivedMetricId,
+  type FinPoint,
+  type FinVintage,
   type PeriodSeries,
 } from "@/lib/finance/derive";
 import {
@@ -55,7 +64,6 @@ export interface FilingChange {
   lagging: boolean;
   metrics: MetricChange[];
   ratios: RatioChange[];
-  revisions: SnapshotRevision[];
   headline: string;
 }
 
@@ -68,6 +76,40 @@ export interface RatioRank {
   sectorMedian: number | null;
 }
 
+/** One figure as known on a date. */
+export interface PointView {
+  metric: DerivedMetricId;
+  period: PeriodType;
+  end: string;
+  value: number;
+  derived: boolean;
+  /** The vintage in force. */
+  vintage: FinVintage;
+  first: FinVintage;
+  history: FinVintage[];
+}
+
+/** A figure whose in-force value differs between two dates. */
+export interface RevisionView {
+  metric: DerivedMetricId;
+  period: PeriodType;
+  end: string;
+  from: FinVintage;
+  to: FinVintage;
+  /** Material by the snapshot's threshold (0.5% and $1M / $0.01). */
+  material: boolean;
+  likelySplit: boolean;
+}
+
+export interface AsOfDiff {
+  fin: CompanyFinancials;
+  from: string;
+  to: string;
+  revised: RevisionView[];
+  added: PointView[];
+  filingsBetween: number[];
+}
+
 const CHANGE_METRICS: DerivedMetricId[] = [
   "revenue", "operatingIncome", "netIncome", "epsDiluted", "operatingCashFlow",
   "freeCashFlow", "netInterestIncome", "cash", "longTermDebt",
@@ -75,6 +117,7 @@ const CHANGE_METRICS: DerivedMetricId[] = [
 const CHANGE_RATIOS: RatioId[] = [
   "grossMargin", "operatingMargin", "netMargin", "fcfMargin", "efficiencyRatio",
 ];
+const PERIOD_DEFINING: DerivedMetricId[] = ["revenue", "netIncome", "operatingCashFlow"];
 
 export class Dataset {
   readonly companies: CompanyFinancials[];
@@ -82,6 +125,7 @@ export class Dataset {
   private readonly ratioCache = new Map<string, Map<RatioId, number | null>>();
   private rankCache: Map<string, RatioRank[]> | null = null;
   private changeCache = new Map<string, FilingChange>();
+  private revisionCache = new Map<string, MaterialRevision[]>();
 
   constructor(readonly snapshot: Snapshot) {
     this.companies = snapshot.companies.map(buildFinancials);
@@ -92,45 +136,124 @@ export class Dataset {
     return this.byTicker.get(ticker.trim().toUpperCase());
   }
 
-  series(fin: CompanyFinancials, type: "annual" | "quarterly"): PeriodSeries {
+  series(fin: CompanyFinancials, type: PeriodType): PeriodSeries {
     return type === "annual" ? fin.annual : fin.quarterly;
   }
 
-  latestEnd(fin: CompanyFinancials, type: "annual" | "quarterly" = "annual"): string | null {
-    const ends = this.series(fin, type).ends;
+  /** Period ends known on `asOf` (some defining metric had been filed). */
+  knownEnds(fin: CompanyFinancials, type: PeriodType, asOf?: string | null): string[] {
+    const s = this.series(fin, type);
+    if (!asOf) return s.ends;
+    return s.ends.filter((end) => PERIOD_DEFINING.some((m) => valueAt(s.metrics.get(m)?.get(end), asOf) !== null));
+  }
+
+  latestEnd(fin: CompanyFinancials, type: PeriodType = "annual", asOf?: string | null): string | null {
+    const ends = this.knownEnds(fin, type, asOf);
     return ends.length ? ends[ends.length - 1] : null;
   }
 
-  ratioAt(fin: CompanyFinancials, type: "annual" | "quarterly", end: string, id: RatioId) {
-    return computeRatio(id, lookupFor(this.series(fin, type), end), fin.company.model, type);
+  ratioAt(fin: CompanyFinancials, type: PeriodType, end: string, id: RatioId, asOf?: string | null) {
+    return computeRatio(id, lookupFor(this.series(fin, type), end, asOf), fin.company.model, type);
   }
 
-  metricAt(fin: CompanyFinancials, type: "annual" | "quarterly", end: string | null, id: DerivedMetricId) {
+  metricAt(fin: CompanyFinancials, type: PeriodType, end: string | null, id: DerivedMetricId, asOf?: string | null) {
     if (!end) return null;
-    return this.series(fin, type).metrics.get(id)?.get(end)?.value ?? null;
+    return valueAt(this.series(fin, type).metrics.get(id)?.get(end), asOf);
   }
 
-  /** Latest fiscal-year ratios, memoised per company. */
+  private view(metric: DerivedMetricId, period: PeriodType, p: FinPoint, asOf?: string | null): PointView | null {
+    const vintage = vintageAt(p, asOf);
+    if (!vintage) return null;
+    return { metric, period, end: p.end, value: vintage.value, derived: p.derived, vintage, first: p.history[0], history: p.history };
+  }
+
+  /** A metric's series as known on `asOf`, last `last` periods. */
+  points(fin: CompanyFinancials, type: PeriodType, metric: DerivedMetricId, last: number, asOf?: string | null): PointView[] {
+    const m = this.series(fin, type).metrics.get(metric);
+    if (!m) return [];
+    const out: PointView[] = [];
+    for (const p of m.values()) {
+      const v = this.view(metric, type, p, asOf);
+      if (v) out.push(v);
+    }
+    return out.slice(-last);
+  }
+
+  /** Latest fiscal-year ratios (as reported today), memoised per company. */
   latestRatios(fin: CompanyFinancials): Map<RatioId, number | null> {
     const key = fin.company.ticker;
     let m = this.ratioCache.get(key);
     if (!m) {
       const end = this.latestEnd(fin);
-      m = new Map(
-        RATIO_IDS.map((id) => [id, end ? this.ratioAt(fin, "annual", end, id) : null]),
-      );
+      m = new Map(RATIO_IDS.map((id) => [id, end ? this.ratioAt(fin, "annual", end, id) : null]));
       this.ratioCache.set(key, m);
     }
     return m;
   }
 
-  ratioSeries(fin: CompanyFinancials, type: "annual" | "quarterly", id: RatioId, last: number) {
-    const s = this.series(fin, type);
-    return s.ends.slice(-last).map((end) => ({
+  ratioSeries(fin: CompanyFinancials, type: PeriodType, id: RatioId, last: number, asOf?: string | null) {
+    return this.knownEnds(fin, type, asOf).slice(-last).map((end) => ({
       end,
       label: periodLabel(type, end),
-      value: this.ratioAt(fin, type, end, id),
+      value: this.ratioAt(fin, type, end, id, asOf),
     }));
+  }
+
+  /**
+   * Every figure whose in-force value differs between two dates, plus the
+   * figures that did not exist on the first date. Derived points are included
+   * (they are what a reader would have seen) but flagged, so the material
+   * count only uses reported figures.
+   */
+  diff(fin: CompanyFinancials, from: string, to: string): AsOfDiff {
+    const [lo, hi] = from <= to ? [from, to] : [to, from];
+    const revised: RevisionView[] = [];
+    const added: PointView[] = [];
+    for (const type of ["annual", "quarterly"] as const) {
+      for (const [metric, m] of this.series(fin, type).metrics) {
+        const unit = metric === "freeCashFlow" ? "USD" : METRICS[metric].unit;
+        for (const p of m.values()) {
+          const change = changeBetween(p.history, lo, hi);
+          if (change) {
+            revised.push({
+              metric,
+              period: type,
+              end: p.end,
+              from: change.from,
+              to: change.to,
+              material: !p.derived && isMaterialChange(change.from.value, change.to.value, unit),
+              likelySplit: isLikelySplit(change.from.value, change.to.value, unit),
+            });
+          } else if (!vintageAt(p, lo)) {
+            const v = this.view(metric, type, p, hi);
+            if (v) added.push(v);
+          }
+        }
+      }
+    }
+    const rel = (r: RevisionView) => Math.abs(r.to.value - r.from.value) / Math.max(Math.abs(r.from.value), 1e-9);
+    revised.sort((a, b) => Number(b.material) - Number(a.material) || rel(b) - rel(a));
+    added.sort((a, b) => b.end.localeCompare(a.end) || a.metric.localeCompare(b.metric));
+    const filingsBetween = fin.company.filings
+      .map((f, i) => [f, i] as const)
+      .filter(([f]) => f.filed > lo && f.filed <= hi)
+      .sort(([a], [b]) => a.filed.localeCompare(b.filed))
+      .map(([, i]) => i);
+    return { fin, from: lo, to: hi, revised, added, filingsBetween };
+  }
+
+  /** Material revisions in the company's history, newest change first. */
+  revisionLog(fin: CompanyFinancials): MaterialRevision[] {
+    let log = this.revisionCache.get(fin.company.ticker);
+    if (!log) {
+      log = companyRevisions(fin.company).sort(
+        (a, b) =>
+          fin.company.filings[b.toFiling].filed.localeCompare(fin.company.filings[a.toFiling].filed) ||
+          b.end.localeCompare(a.end),
+      );
+      this.revisionCache.set(fin.company.ticker, log);
+    }
+    return log;
   }
 
   /** Rank every company against its GICS sector on each ratio's latest value. */
@@ -147,9 +270,7 @@ export class Dataset {
         const valuesByRatio = new Map<RatioId, number[]>(
           RATIO_IDS.map((id) => [
             id,
-            peers
-              .map((p) => this.latestRatios(p).get(id))
-              .filter((v): v is number => v !== null && v !== undefined),
+            peers.map((p) => this.latestRatios(p).get(id)).filter((v): v is number => v !== null && v !== undefined),
           ]),
         );
         for (const c of peers) {
@@ -159,14 +280,7 @@ export class Dataset {
             const values = valuesByRatio.get(id)!;
             const value = this.latestRatios(c).get(id) ?? null;
             const r = value === null ? null : rankAmong(value, values, RATIOS[id].better);
-            ranks.push({
-              ratio: id,
-              value,
-              rank: r?.rank ?? null,
-              of: values.length,
-              percentile: r?.percentile ?? null,
-              sectorMedian: median(values),
-            });
+            ranks.push({ ratio: id, value, rank: r?.rank ?? null, of: values.length, percentile: r?.percentile ?? null, sectorMedian: median(values) });
           }
           this.rankCache.set(c.company.ticker, ranks);
         }
@@ -198,11 +312,7 @@ export class Dataset {
         companies: members.length,
         medians: RATIO_IDS.map((id) => ({
           ratio: id,
-          value: median(
-            members
-              .map((c) => this.latestRatios(c).get(id))
-              .filter((v): v is number => v !== null && v !== undefined),
-          ),
+          value: median(members.map((c) => this.latestRatios(c).get(id)).filter((v): v is number => v !== null && v !== undefined)),
         })),
       };
     });
@@ -210,8 +320,7 @@ export class Dataset {
 
   /**
    * What changed in the latest filing: the newest quarter against the same
-   * quarter a year earlier and the quarter before, margin moves in basis
-   * points, and any prior-period figures that filing revised.
+   * quarter a year earlier and the quarter before, and margin moves in bps.
    */
   changes(fin: CompanyFinancials): FilingChange {
     const cached = this.changeCache.get(fin.company.ticker);
@@ -222,48 +331,24 @@ export class Dataset {
     const quarterEnd = q.ends.length ? q.ends[q.ends.length - 1] : null;
     const priorYearEnd = quarterEnd ? yearsBefore(q, quarterEnd, 1) : null;
     const priorQuarterEnd = quarterEnd ? previousEnd(q, quarterEnd) : null;
+    const pct = (a: number | null, b: number | null) => (a === null || b === null || b === 0 ? null : (a - b) / Math.abs(b));
 
-    const pct = (a: number | null, b: number | null) =>
-      a === null || b === null || b === 0 ? null : (a - b) / Math.abs(b);
+    const metrics: MetricChange[] = CHANGE_METRICS.filter((id) => q.metrics.has(id))
+      .map((metric) => {
+        const value = this.metricAt(fin, "quarterly", quarterEnd, metric);
+        const priorYear = this.metricAt(fin, "quarterly", priorYearEnd, metric);
+        const priorQuarter = this.metricAt(fin, "quarterly", priorQuarterEnd, metric);
+        return { metric, value, priorYear, yoy: pct(value, priorYear), priorQuarter, qoq: pct(value, priorQuarter) };
+      })
+      .filter((m) => m.value !== null);
 
-    const metrics: MetricChange[] = CHANGE_METRICS.filter((id) =>
-      q.metrics.has(id),
-    ).map((metric) => {
-      const value = this.metricAt(fin, "quarterly", quarterEnd, metric);
-      const priorYear = this.metricAt(fin, "quarterly", priorYearEnd, metric);
-      const priorQuarter = this.metricAt(fin, "quarterly", priorQuarterEnd, metric);
-      return {
-        metric,
-        value,
-        priorYear,
-        yoy: pct(value, priorYear),
-        priorQuarter,
-        qoq: pct(value, priorQuarter),
-      };
-    }).filter((m) => m.value !== null);
-
-    const ratios: RatioChange[] = CHANGE_RATIOS.filter((id) => ratioApplies(id, c.model)).map(
-      (ratio) => {
+    const ratios: RatioChange[] = CHANGE_RATIOS.filter((id) => ratioApplies(id, c.model))
+      .map((ratio) => {
         const value = quarterEnd ? this.ratioAt(fin, "quarterly", quarterEnd, ratio) : null;
         const priorYear = priorYearEnd ? this.ratioAt(fin, "quarterly", priorYearEnd, ratio) : null;
-        return {
-          ratio,
-          value,
-          priorYear,
-          delta: value === null || priorYear === null ? null : value - priorYear,
-        };
-      },
-    ).filter((r) => r.value !== null);
-
-    // The filing that carried the latest quarter's numbers; revisions it made.
-    const dataFiling =
-      quarterEnd === null
-        ? null
-        : (q.metrics.get("revenue")?.get(quarterEnd)?.filing ??
-          q.metrics.get("netIncome")?.get(quarterEnd)?.filing ??
-          null);
-    const revisions =
-      dataFiling === null ? [] : c.revisions.filter((r) => r.toFiling === dataFiling);
+        return { ratio, value, priorYear, delta: value === null || priorYear === null ? null : value - priorYear };
+      })
+      .filter((r) => r.value !== null);
 
     const change: FilingChange = {
       fin,
@@ -274,7 +359,6 @@ export class Dataset {
       lagging: !!(filing && quarterEnd && filing.period > quarterEnd),
       metrics,
       ratios,
-      revisions,
       headline: "",
     };
     change.headline = headline(change);
@@ -286,11 +370,7 @@ export class Dataset {
     return this.companies
       .map((c) => this.changes(c))
       .filter((ch) => ch.filing && (!form || ch.filing.form === form))
-      .sort(
-        (a, b) =>
-          b.filing!.filed.localeCompare(a.filing!.filed) ||
-          a.fin.company.ticker.localeCompare(b.fin.company.ticker),
-      )
+      .sort((a, b) => b.filing!.filed.localeCompare(a.filing!.filed) || a.fin.company.ticker.localeCompare(b.fin.company.ticker))
       .slice(0, first);
   }
 }
@@ -300,23 +380,14 @@ function headline(ch: FilingChange): string {
   const parts: string[] = [];
   const rev = ch.metrics.find((m) => m.metric === "revenue");
   if (rev?.value != null) {
-    parts.push(
-      rev.yoy === null
-        ? `Revenue ${formatMoney(rev.value)}`
-        : `Revenue ${formatChange(rev.yoy)} YoY to ${formatMoney(rev.value)}`,
-    );
+    parts.push(rev.yoy === null ? `Revenue ${formatMoney(rev.value)}` : `Revenue ${formatChange(rev.yoy)} YoY to ${formatMoney(rev.value)}`);
   }
   const margin =
     ch.ratios.find((r) => r.ratio === "operatingMargin" && r.delta !== null) ??
     ch.ratios.find((r) => r.ratio === "netMargin" && r.delta !== null);
-  if (margin) {
-    parts.push(`${RATIOS[margin.ratio].label.toLowerCase()} ${formatBps(margin.delta)}`);
-  }
+  if (margin) parts.push(`${RATIOS[margin.ratio].label.toLowerCase()} ${formatBps(margin.delta)}`);
   const ni = ch.metrics.find((m) => m.metric === "netIncome");
   if (ni?.yoy != null) parts.push(`net income ${formatChange(ni.yoy)}`);
-  if (ch.revisions.length) {
-    parts.push(`${ch.revisions.length} prior figure${ch.revisions.length === 1 ? "" : "s"} revised`);
-  }
   return parts.length ? parts.join(" · ") : "No comparable figures.";
 }
 
@@ -324,10 +395,19 @@ export function metricLabel(id: DerivedMetricId): string {
   return id === "freeCashFlow" ? "Free cash flow" : METRICS[id].label;
 }
 
+export function metricUnit(id: DerivedMetricId): "USD" | "USD/shares" {
+  return id === "freeCashFlow" ? "USD" : METRICS[id].unit;
+}
+
+export { daysBetween };
+export type { MetricId };
+
 let instance: Dataset | null = null;
 
-export function loadSnapshot(file = path.join(process.cwd(), "data", "snapshot.json")): Snapshot {
-  return JSON.parse(readFileSync(file, "utf8")) as Snapshot;
+export function loadSnapshot(file?: string): Snapshot {
+  // Statically scoped so Turbopack traces data/ into the server output, not the whole repo.
+  const target = file ?? path.join(process.cwd(), "data", "snapshot.json");
+  return JSON.parse(readFileSync(/* turbopackIgnore: true */ target, "utf8")) as Snapshot;
 }
 
 export function getDataset(): Dataset {

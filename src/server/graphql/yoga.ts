@@ -1,7 +1,7 @@
 import { createSchema, createYoga } from "graphql-yoga";
 import { getDataset, type Dataset } from "../dataset";
 import type { GraphQLContext } from "./context";
-import { useQueryLimits } from "./limits";
+import { queryLimitsPlugin } from "./limits";
 import { resolvers } from "./resolvers";
 import { typeDefs } from "./typeDefs";
 
@@ -18,7 +18,7 @@ export function createGraphQLServer(dataset: () => Dataset = getDataset) {
     graphqlEndpoint: "/api/graphql",
     fetchAPI: { Response },
     context: () => ({ dataset: dataset() }),
-    plugins: [useQueryLimits()],
+    plugins: [queryLimitsPlugin()],
     // Unexpected errors are masked; GraphQLErrors we throw (bad input,
     // limits) pass through with their extension codes.
     maskedErrors: true,

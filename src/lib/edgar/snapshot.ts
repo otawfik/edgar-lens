@@ -1,7 +1,8 @@
 /**
  * Shape of data/snapshot.json — the compact, committed output of
- * scripts/build-snapshot.ts. Points reference filings by index so an
- * accession number is stored once per company, not once per value.
+ * scripts/build-snapshot.ts. Each value keeps its full point-in-time history
+ * (every filing that changed it), referencing filings by index so an
+ * accession number and date are stored once per company, not once per value.
  */
 import type { MetricId } from "./concepts";
 import type { BusinessModel, Sector } from "../universe";
@@ -19,22 +20,18 @@ export interface SnapshotFiling {
   doc?: string;
 }
 
-/** [period end, value, index into `filings`] */
-export type SnapshotPoint = [end: string, value: number, filing: number];
+/** [index into `filings`, value] — one vintage of a figure. */
+export type SnapshotVintage = [filing: number, value: number];
+
+/**
+ * One reported figure: the period it covers and every value it has had, in
+ * filing order. `history[0]` is as first reported, the last entry is the
+ * current figure. Most figures have exactly one vintage. The third element is
+ * 1 when the quarter was derived from a year-to-date chain rather than tagged.
+ */
+export type SnapshotPoint = [end: string, history: SnapshotVintage[], derived?: 1];
 
 export type PeriodType = "annual" | "quarterly";
-
-export interface SnapshotRevision {
-  metric: MetricId;
-  period: PeriodType;
-  end: string;
-  /** As first reported. */
-  from: number;
-  /** As reported in the latest filing that carries this period. */
-  to: number;
-  fromFiling: number;
-  toFiling: number;
-}
 
 export interface SnapshotCompany {
   cik: number;
@@ -50,19 +47,67 @@ export interface SnapshotCompany {
   recent: number[];
   annual: Partial<Record<MetricId, SnapshotPoint[]>>;
   quarterly: Partial<Record<MetricId, SnapshotPoint[]>>;
-  revisions: SnapshotRevision[];
+}
+
+export interface RevisionLeagueRow {
+  ticker: string;
+  name: string;
+  sector: Sector;
+  /** Reported (metric, period) figures with at least one vintage. */
+  figures: number;
+  /** Figures with a material later change (splits excluded). */
+  revised: number;
+  rate: number;
+  /** Median days from first filing to the first material change. */
+  medianLagDays: number | null;
+  /** Largest relative change, and what it was. */
+  largest: { metric: MetricId; period: PeriodType; end: string; from: number; to: number } | null;
+}
+
+export interface MetricLeagueRow {
+  metric: MetricId;
+  figures: number;
+  revised: number;
+  rate: number;
+  medianLagDays: number | null;
+}
+
+export interface SectorLeagueRow {
+  sector: Sector;
+  companies: number;
+  figures: number;
+  revised: number;
+  rate: number;
+}
+
+export interface RevisionStats {
+  figures: number;
+  revised: number;
+  rate: number;
+  /** Figures that changed more than once. */
+  revisedTwice: number;
+  medianLagDays: number | null;
+  /** Share of material changes carried in each form type. */
+  byForm: { form: string; changes: number }[];
+  lagBuckets: { label: string; changes: number }[];
+  companies: RevisionLeagueRow[];
+  metrics: MetricLeagueRow[];
+  sectors: SectorLeagueRow[];
 }
 
 export interface Snapshot {
-  version: 1;
+  version: 2;
   generatedAt: string;
   source: string;
   stats: {
     companies: number;
     rawFactsScanned: number;
-    points: number;
+    figures: number;
+    vintages: number;
     filings: number;
-    revisions: number;
+    earliestFiled: string;
+    latestFiled: string;
   };
+  revisions: RevisionStats;
   companies: SnapshotCompany[];
 }

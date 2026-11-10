@@ -195,7 +195,7 @@ export function estimateCost(
 }
 
 /** Envelop/Yoga plugin wiring both limits in. */
-export function useQueryLimits(opts: { maxDepth?: number; maxCost?: number } = {}) {
+export function queryLimitsPlugin(opts: { maxDepth?: number; maxCost?: number } = {}) {
   const maxCost = opts.maxCost ?? MAX_COST;
   return {
     onValidate({ addValidationRule }: { addValidationRule: (rule: unknown) => void }) {

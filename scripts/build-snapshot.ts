@@ -1,6 +1,7 @@
 /**
  * Normalise the raw SEC cache (.cache/sec, from fetch-sec.ts) into the compact
- * snapshot the app serves: data/snapshot.json.
+ * snapshot the app serves: data/snapshot.json, with every figure's
+ * point-in-time history and the snapshot-wide revision league tables.
  *
  *   npm run data:build
  */
@@ -11,7 +12,8 @@ import {
   type CompanyFactsJson,
   type SubmissionsJson,
 } from "../src/lib/edgar/normalize";
-import type { Snapshot } from "../src/lib/edgar/snapshot";
+import { computeRevisionStats, countFigures } from "../src/lib/edgar/revisionStats";
+import type { Snapshot, SnapshotCompany } from "../src/lib/edgar/snapshot";
 import { PREDECESSOR_CIKS, UNIVERSE } from "../src/lib/universe";
 
 const CACHE = path.resolve(".cache/sec");
@@ -26,13 +28,13 @@ async function main() {
   );
   const byTicker = new Map(Object.values(tickers).map((t) => [t.ticker, t.cik_str]));
 
-  const snapshot: Snapshot = {
-    version: 1,
-    generatedAt: new Date().toISOString(),
-    source: "SEC EDGAR XBRL company facts (data.sec.gov), public domain",
-    stats: { companies: 0, rawFactsScanned: 0, points: 0, filings: 0, revisions: 0 },
-    companies: [],
-  };
+  const companies: SnapshotCompany[] = [];
+  let rawFactsScanned = 0;
+  let figures = 0;
+  let vintages = 0;
+  let filings = 0;
+  let earliestFiled = "9999-99-99";
+  let latestFiled = "";
 
   for (const entry of UNIVERSE) {
     const cik = byTicker.get(entry.ticker);
@@ -45,20 +47,36 @@ async function main() {
       ciks.map((c) => readJson<SubmissionsJson>(`submissions/CIK${pad(c)}.json`)),
     );
     const { company, rawFacts } = buildCompany(entry, cik, facts, subs);
-    snapshot.companies.push(company);
-    snapshot.stats.rawFactsScanned += rawFacts;
-    snapshot.stats.points +=
-      Object.values(company.annual).reduce((n, p) => n + p.length, 0) +
-      Object.values(company.quarterly).reduce((n, p) => n + p.length, 0);
-    snapshot.stats.filings += company.filings.length;
-    snapshot.stats.revisions += company.revisions.length;
+    companies.push(company);
+    rawFactsScanned += rawFacts;
+    figures += countFigures(company);
+    for (const series of [company.annual, company.quarterly]) {
+      for (const pts of Object.values(series)) for (const [, history] of pts) vintages += history.length;
+    }
+    filings += company.filings.length;
+    for (const f of company.filings) {
+      if (f.filed < earliestFiled) earliestFiled = f.filed;
+      if (f.filed > latestFiled) latestFiled = f.filed;
+    }
   }
-  snapshot.stats.companies = snapshot.companies.length;
+
+  const snapshot: Snapshot = {
+    version: 2,
+    generatedAt: new Date().toISOString(),
+    source: "SEC EDGAR XBRL company facts (data.sec.gov), public domain",
+    stats: { companies: companies.length, rawFactsScanned, figures, vintages, filings, earliestFiled, latestFiled },
+    revisions: computeRevisionStats(companies),
+    companies,
+  };
 
   const json = JSON.stringify(snapshot);
   await writeFile(OUT, json);
+  const r = snapshot.revisions;
+  console.log(`Wrote ${OUT} (${(json.length / 1e6).toFixed(2)} MB)`);
+  console.log(JSON.stringify(snapshot.stats));
   console.log(
-    `Wrote ${OUT} (${(json.length / 1e6).toFixed(2)} MB): ` + JSON.stringify(snapshot.stats),
+    `Revisions: ${r.revised}/${r.figures} figures (${(r.rate * 100).toFixed(1)}%), ` +
+      `${r.revisedTwice} changed twice, median lag ${r.medianLagDays} days`,
   );
 }
 

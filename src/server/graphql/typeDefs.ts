@@ -1,20 +1,22 @@
 export const typeDefs = /* GraphQL */ `
   """
-  Financial statements of ~100 US large caps, normalised from SEC EDGAR XBRL
-  company facts. Monetary values are in US dollars; ratios are fractions
-  (0.25 = 25%) unless the ratio's format is MULTIPLE.
+  Point-in-time financial statements of ~100 US large caps, normalised from SEC
+  EDGAR XBRL company facts. Every figure keeps the history of values it has
+  had across filings; any series can be read "as of" a past date. Monetary
+  values are US dollars; ratios are fractions (0.25 = 25%) unless MULTIPLE.
+  Dates are ISO yyyy-mm-dd.
   """
   type Query {
     "Provenance and size of the loaded snapshot."
     dataset: Dataset!
+    "Snapshot-wide revision statistics and league tables, computed at build time."
+    revisionStats: RevisionStats!
     "GICS sectors with company counts and median latest-fiscal-year ratios."
     sectors: [SectorSummary!]!
     "Companies in the coverage universe, optionally filtered. Max 200."
     companies(filter: CompanyFilter, first: Int = 200): [Company!]!
     "One company by ticker (case-insensitive)."
     company(ticker: String!): Company
-    "Several companies in the order given. Unknown tickers are skipped. Max 6."
-    compare(tickers: [String!]!): [Company!]!
     "Each company's latest 10-K/10-Q, newest first, with what changed. Max 120."
     latestFilings(first: Int = 25, form: FilingForm): [FilingChange!]!
     ratioDefinitions: [RatioDefinition!]!
@@ -25,12 +27,14 @@ export const typeDefs = /* GraphQL */ `
     generatedAt: String!
     source: String!
     companies: Int!
-    dataPoints: Int!
+    "Reported (metric, period) figures; derived quarters are not counted."
+    figures: Int!
+    "Distinct values those figures have had across filings."
+    vintages: Int!
     filings: Int!
-    revisions: Int!
     rawFactsScanned: Int!
-    "Most recent filing date in the snapshot."
-    latestFiled: String
+    earliestFiled: String!
+    latestFiled: String!
   }
 
   input CompanyFilter {
@@ -131,20 +135,27 @@ export const typeDefs = /* GraphQL */ `
     "Latest fiscal year (calendar-aligned: years ending Jan–May belong to the prior year)."
     latestFiscalYear: Int
     latestPeriodEnd: String
+    "Distinct dates on which this company filed a 10-K/10-Q in the snapshot, ascending."
+    filingDates: [String!]!
     "Latest fiscal-year figures, for screening."
     keyStats: KeyStats!
-    series(metric: Metric!, period: PeriodType = ANNUAL, last: Int = 11): [DataPoint!]!
-    ratio(id: Ratio!, period: PeriodType = ANNUAL, last: Int = 11): [RatioPoint!]!
-    "Rank within GICS sector on each applicable ratio."
+    "One metric's series. With asOf, values are what had been filed on or before that date."
+    series(metric: Metric!, period: PeriodType = ANNUAL, last: Int = 11, asOf: String): [DataPoint!]!
+    "Every metric's series at once, for a statement view. Max last 40."
+    lineItems(period: PeriodType = ANNUAL, last: Int = 8, asOf: String): [LineItem!]!
+    ratio(id: Ratio!, period: PeriodType = ANNUAL, last: Int = 11, asOf: String): [RatioPoint!]!
+    "Figures whose in-force value differs between two dates, and figures first filed between them."
+    diff(from: String!, to: String!): AsOfDiff!
+    "Material revisions across the company's history, newest change first. Max 200."
+    revisions(first: Int = 50): [Revision!]!
+    "Rank within GICS sector on each applicable ratio (latest figures)."
     ranking: [RatioRank!]!
     "Same-sector companies closest in revenue. Max 10."
     peers(limit: Int = 5): [Company!]!
-    "What the latest filing changed."
+    "What the latest filing changed versus a year earlier."
     changes: FilingChange!
     "Most recent 10-K/10-Q filings."
-    filings(first: Int = 6): [Filing!]!
-    "Figures whose latest reported value differs from the first by ≥0.5%."
-    revisions(first: Int = 25): [Revision!]!
+    filings(first: Int = 8): [Filing!]!
   }
 
   type KeyStats {
@@ -163,15 +174,37 @@ export const typeDefs = /* GraphQL */ `
     value: Float
   }
 
+  type Vintage {
+    value: Float!
+    filing: Filing!
+  }
+
   type DataPoint {
     end: String!
     "FY2024 or Sep 2025"
     label: String!
     fiscalYear: Int!
+    "The value in force on the as-of date (or today)."
     value: Float!
-    "Computed from other reported values (e.g. FCF), not tagged by the filer."
+    "Computed from other reported values (quarter from YTD, FCF, gross profit)."
     derived: Boolean!
-    filing: Filing
+    "The filing whose value is in force."
+    vintage: Vintage!
+    "As first reported."
+    first: Vintage!
+    "Number of distinct values this figure has had up to the as-of date."
+    vintages: Int!
+    "True when the in-force value differs from the first reported one."
+    revised: Boolean!
+    "Every value this figure has had, in filing order (not limited by asOf)."
+    history: [Vintage!]!
+  }
+
+  type LineItem {
+    metric: Metric!
+    label: String!
+    unit: String!
+    points: [DataPoint!]!
   }
 
   type RatioPoint {
@@ -196,7 +229,10 @@ export const typeDefs = /* GraphQL */ `
     form: String!
     filed: String!
     period: String!
+    "The primary document on EDGAR."
     url: String!
+    "The EDGAR filing index page."
+    indexUrl: String!
   }
 
   type MetricChange {
@@ -225,11 +261,28 @@ export const typeDefs = /* GraphQL */ `
     periodLabel: String!
     from: Float!
     to: Float!
+    "Relative change, (to − from) / |from|."
     change: Float
+    "Days between the two filings."
+    lagDays: Int!
+    "Above the materiality threshold (0.5% and $1M / $0.01) and not derived."
+    material: Boolean!
     "Per-share figure that moved by a whole-number factor: a stock split, not a restatement."
     likelySplit: Boolean!
     firstReported: Filing!
     revisedIn: Filing!
+  }
+
+  type AsOfDiff {
+    from: String!
+    to: String!
+    "Figures whose in-force value differs between the two dates, largest material change first."
+    revised: [Revision!]!
+    materialCount: Int!
+    "Figures first filed after \`from\` and on or before \`to\`, newest period first."
+    added: [DataPoint!]!
+    "10-K/10-Q filings made after \`from\` and on or before \`to\`."
+    filingsBetween: [Filing!]!
   }
 
   type FilingChange {
@@ -244,13 +297,75 @@ export const typeDefs = /* GraphQL */ `
     headline: String!
     metrics: [MetricChange!]!
     ratios: [RatioChange!]!
-    revisions: [Revision!]!
   }
 
   type SectorSummary {
     sector: String!
     companies: Int!
     medians: [RatioValue!]!
+  }
+
+  type RevisionStats {
+    figures: Int!
+    revised: Int!
+    rate: Float!
+    revisedTwice: Int!
+    medianLagDays: Float
+    byForm: [FormCount!]!
+    lagBuckets: [LagBucket!]!
+    "Every company, highest revision rate first."
+    companies: [CompanyLeagueRow!]!
+    metrics: [MetricLeagueRow!]!
+    sectors: [SectorLeagueRow!]!
+  }
+
+  type FormCount {
+    form: String!
+    changes: Int!
+  }
+
+  type LagBucket {
+    label: String!
+    changes: Int!
+  }
+
+  type CompanyLeagueRow {
+    ticker: String!
+    name: String!
+    sector: String!
+    figures: Int!
+    revised: Int!
+    rate: Float!
+    medianLagDays: Float
+    largest: LargestRevision
+  }
+
+  type LargestRevision {
+    metric: Metric!
+    label: String!
+    period: PeriodType!
+    end: String!
+    periodLabel: String!
+    from: Float!
+    to: Float!
+    change: Float
+  }
+
+  type MetricLeagueRow {
+    metric: Metric!
+    label: String!
+    figures: Int!
+    revised: Int!
+    rate: Float!
+    medianLagDays: Float
+  }
+
+  type SectorLeagueRow {
+    sector: String!
+    companies: Int!
+    figures: Int!
+    revised: Int!
+    rate: Float!
   }
 
   type RatioDefinition {
