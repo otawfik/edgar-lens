@@ -79,7 +79,6 @@ export const selectAllRows = createSelector([selectScreenerData], toRows);
 
 export const selectScreener = (state: RootState) => state.screener;
 export const selectWatchlist = (state: RootState) => state.watchlist.tickers;
-export const selectCompare = (state: RootState) => state.compare;
 
 export const selectFilteredRows = createSelector(
   [selectAllRows, selectScreener, selectWatchlist],

@@ -1,9 +1,8 @@
 import { createListenerMiddleware, isAnyOf } from "@reduxjs/toolkit";
-import * as compare from "./compareSlice";
+import * as rewind from "./rewindSlice";
 import * as screener from "./screenerSlice";
-import * as view from "./viewSlice";
+import { serializeRewind, serializeScreener } from "./urlState";
 import * as watchlist from "./watchlistSlice";
-import { serializeCompare, serializeForm, serializePeriod, serializeScreener } from "./urlState";
 import type { AppDispatch, RootState } from "./store";
 
 export const WATCHLIST_KEY = "edgar-lens:watchlist";
@@ -11,7 +10,7 @@ export const WATCHLIST_KEY = "edgar-lens:watchlist";
 export const listener = createListenerMiddleware();
 const startListening = listener.startListening.withTypes<RootState, AppDispatch>();
 
-/** Mirror state into the query string of `path`, if that is the current page. */
+/** Mirror state into the query string of the current page, if `matches` it. */
 function mirror(matches: (pathname: string) => boolean, query: string) {
   if (typeof window === "undefined" || !matches(window.location.pathname)) return;
   const next = query ? `?${query}` : "";
@@ -30,22 +29,12 @@ startListening({
     screener.setSort,
     screener.resetFilters,
   ),
-  effect: (_action, api) => mirror((p) => p === "/", serializeScreener(api.getState().screener)),
+  effect: (_action, api) => mirror((p) => p === "/screener", serializeScreener(api.getState().screener)),
 });
 
 startListening({
-  matcher: isAnyOf(compare.toggleCompare, compare.setCompareTickers, compare.clearCompare, compare.setCompareRatio),
-  effect: (_action, api) => mirror((p) => p === "/compare", serializeCompare(api.getState().compare)),
-});
-
-startListening({
-  actionCreator: view.setPeriod,
-  effect: (action) => mirror((p) => p.startsWith("/company/"), serializePeriod(action.payload)),
-});
-
-startListening({
-  actionCreator: view.setForm,
-  effect: (action) => mirror((p) => p === "/filings", serializeForm(action.payload)),
+  matcher: isAnyOf(rewind.setAsOf, rewind.setCompareFrom, rewind.setPeriod, rewind.resetRewind),
+  effect: (_action, api) => mirror((p) => p.startsWith("/company/"), serializeRewind(api.getState().rewind)),
 });
 
 startListening({

@@ -3,24 +3,21 @@
  * it so any screen can be bookmarked or shared. Parsers are strict: anything
  * unknown or malformed in the URL is dropped, never trusted into state.
  *
- *   /?sector=Information%20Technology,Health%20Care&q=app&operatingMargin=0.2..&sort=-revenue&watch=1
- *   /compare?t=AAPL,MSFT,NVDA&ratio=fcfMargin
- *   /company/AAPL?period=quarterly
- *   /filings?form=10-Q
+ *   /company/AAPL?asOf=2020-06-30&vs=2018-12-31&period=quarterly
+ *   /screener?sector=Information%20Technology,Health%20Care&q=app&operatingMargin=0.2..&sort=-revenue&watch=1
  */
 import { RATIO_IDS, type RatioId } from "@/lib/finance/ratios";
 import { SECTORS, type Sector } from "@/lib/universe";
-import { MAX_COMPARE, initialCompareState, type CompareState } from "./compareSlice";
+import { initialRewindState, type RewindState } from "./rewindSlice";
 import {
   initialScreenerState,
   type Bound,
   type ScreenerState,
   type SortField,
 } from "./screenerSlice";
-import type { FormFilter, Period } from "./viewSlice";
 
 const SORT_FIELDS = new Set<string>(["ticker", "name", "sector", "revenue", "netIncome", "freeCashFlow", ...RATIO_IDS]);
-const TICKER = /^[A-Z][A-Z0-9.-]{0,9}$/;
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 function fmtNum(n: number): string {
   return String(Number(n.toPrecision(6)));
@@ -83,45 +80,23 @@ export function parseScreener(query: string | URLSearchParams): ScreenerState {
   };
 }
 
-export function serializeCompare(s: CompareState): string {
+export function serializeRewind(r: RewindState): string {
   const p = new URLSearchParams();
-  if (s.tickers.length) p.set("t", s.tickers.join(","));
-  if (s.ratio !== initialCompareState.ratio) p.set("ratio", s.ratio);
+  if (r.asOf) p.set("asOf", r.asOf);
+  if (r.compareFrom) p.set("vs", r.compareFrom);
+  if (r.period !== initialRewindState.period) p.set("period", r.period);
   return p.toString();
 }
 
-export function parseCompare(query: string | URLSearchParams): CompareState {
+export function parseRewind(query: string | URLSearchParams): RewindState {
   const p = typeof query === "string" ? new URLSearchParams(query) : query;
-  const tickers = [
-    ...new Set(
-      (p.get("t") ?? "")
-        .split(",")
-        .map((t) => t.trim().toUpperCase())
-        .filter((t) => TICKER.test(t)),
-    ),
-  ].slice(0, MAX_COMPARE);
-  const ratio = p.get("ratio");
+  const isoOrNull = (v: string | null) => (v && ISO_DATE.test(v) && !Number.isNaN(Date.parse(`${v}T00:00:00Z`)) ? v : null);
+  const asOf = isoOrNull(p.get("asOf"));
+  let compareFrom = isoOrNull(p.get("vs"));
+  if (compareFrom && asOf && compareFrom >= asOf) compareFrom = null;
   return {
-    tickers,
-    ratio: ratio && (RATIO_IDS as readonly string[]).includes(ratio) ? (ratio as RatioId) : initialCompareState.ratio,
+    asOf,
+    compareFrom,
+    period: p.get("period") === "quarterly" ? "quarterly" : "annual",
   };
-}
-
-export function parsePeriod(query: string | URLSearchParams): Period {
-  const p = typeof query === "string" ? new URLSearchParams(query) : query;
-  return p.get("period") === "quarterly" ? "quarterly" : "annual";
-}
-
-export function serializePeriod(period: Period): string {
-  return period === "quarterly" ? "period=quarterly" : "";
-}
-
-export function parseForm(query: string | URLSearchParams): FormFilter {
-  const p = typeof query === "string" ? new URLSearchParams(query) : query;
-  const f = p.get("form");
-  return f === "10-K" || f === "10-Q" ? f : "all";
-}
-
-export function serializeForm(form: FormFilter): string {
-  return form === "all" ? "" : `form=${form}`;
 }

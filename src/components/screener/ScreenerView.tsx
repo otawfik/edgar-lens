@@ -32,7 +32,7 @@ export function ScreenerView() {
     (search) => dispatch(hydrateScreener(parseScreener(search))),
     () => {
       const q = serializeScreener(store.getState().screener);
-      if (q) window.history.replaceState(window.history.state, "", `/?${q}`);
+      if (q) window.history.replaceState(window.history.state, "", `/screener?${q}`);
     },
   );
 
@@ -42,7 +42,7 @@ export function ScreenerView() {
         <Box sx={{ flexGrow: 1 }}>
           <Typography variant="h1">US large-cap screener</Typography>
           <Typography color="text.secondary" sx={{ mt: 0.5, maxWidth: 760 }}>
-            {data ? `${data.dataset.companies} companies, ${data.dataset.dataPoints.toLocaleString("en-US")} reported data points` : "Loading"}{" "}
+            {data ? `${data.dataset.companies} companies, ${data.dataset.figures.toLocaleString("en-US")} reported figures` : "Loading"}{" "}
             normalised from SEC XBRL filings. Ratios are for each company&apos;s latest fiscal year; click a row for
             trends, peer ranks and what changed in its latest filing.
           </Typography>

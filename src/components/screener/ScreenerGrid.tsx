@@ -8,15 +8,12 @@ import Tooltip from "@mui/material/Tooltip";
 import useMediaQuery from "@mui/material/useMediaQuery";
 import { useTheme } from "@mui/material/styles";
 import { DataGrid, type GridColDef, type GridSortModel } from "@mui/x-data-grid";
-import AddBoxOutlinedIcon from "@mui/icons-material/AddBoxOutlined";
-import CheckBoxIcon from "@mui/icons-material/CheckBox";
 import StarIcon from "@mui/icons-material/Star";
 import StarBorderIcon from "@mui/icons-material/StarBorder";
 import WarningAmberIcon from "@mui/icons-material/WarningAmber";
 import { formatDate } from "@/lib/edgar/periods";
 import { RATIOS } from "@/lib/finance/ratios";
 import { formatMoney, formatRatio } from "@/lib/format";
-import { MAX_COMPARE, toggleCompare } from "@/store/compareSlice";
 import { setSort, initialScreenerState, type SortField } from "@/store/screenerSlice";
 import type { ScreenerRow } from "@/store/selectors";
 import { useAppDispatch, useAppSelector } from "@/store/store";
@@ -32,14 +29,12 @@ export function ScreenerGrid({ rows, loading }: { rows: ScreenerRow[]; loading: 
   const router = useRouter();
   const sort = useAppSelector((s) => s.screener.sort);
   const watch = useAppSelector((s) => s.watchlist.tickers);
-  const compare = useAppSelector((s) => s.compare.tickers);
   const theme = useTheme();
   const phone = useMediaQuery(theme.breakpoints.down("sm"));
   const tablet = useMediaQuery(theme.breakpoints.down("lg"));
 
   const columns = useMemo<GridColDef<ScreenerRow>[]>(() => {
     const watched = new Set(watch);
-    const comparing = new Set(compare);
     return [
       {
         field: "watch",
@@ -117,38 +112,8 @@ export function ScreenerGrid({ rows, loading }: { rows: ScreenerRow[]; loading: 
             "—"
           ),
       },
-      {
-        field: "compare",
-        headerName: "",
-        width: 48,
-        sortable: false,
-        disableColumnMenu: true,
-        renderHeader: () => <span style={{ position: "absolute", left: -9999 }}>Compare</span>,
-        renderCell: ({ row }) => {
-          const on = comparing.has(row.ticker);
-          const full = !on && comparing.size >= MAX_COMPARE;
-          return (
-            <Tooltip title={full ? `Compare holds ${MAX_COMPARE}` : on ? "Remove from compare" : "Add to compare"}>
-              <span>
-                <IconButton
-                  size="small"
-                  disabled={full}
-                  aria-label={on ? `Remove ${row.ticker} from compare` : `Add ${row.ticker} to compare`}
-                  aria-pressed={on}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    dispatch(toggleCompare(row.ticker));
-                  }}
-                >
-                  {on ? <CheckBoxIcon fontSize="small" color="primary" /> : <AddBoxOutlinedIcon fontSize="small" />}
-                </IconButton>
-              </span>
-            </Tooltip>
-          );
-        },
-      },
     ];
-  }, [watch, compare, dispatch]);
+  }, [watch, dispatch]);
 
   const sortModel: GridSortModel = [{ field: sort.field, sort: sort.direction }];
 
