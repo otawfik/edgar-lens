@@ -11,6 +11,11 @@ export function fromUtc(ms: number): string {
   return new Date(ms).toISOString().slice(0, 10);
 }
 
+/** A real calendar date in yyyy-mm-dd (2020-02-30 is rejected). */
+export function isIsoDate(s: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) && fromUtc(toUtc(s)) === s;
+}
+
 export function addDays(iso: string, days: number): string {
   return fromUtc(toUtc(iso) + days * DAY);
 }

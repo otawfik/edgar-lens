@@ -1,4 +1,5 @@
 import { createSlice, type PayloadAction } from "@reduxjs/toolkit";
+import { isIsoDate } from "@/lib/edgar/periods";
 
 export type Period = "annual" | "quarterly";
 
@@ -16,8 +17,7 @@ export interface RewindState {
 
 export const initialRewindState: RewindState = { asOf: null, compareFrom: null, period: "annual" };
 
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
-const clean = (d: string | null | undefined): string | null => (d && ISO_DATE.test(d) ? d : null);
+const clean = (d: string | null | undefined): string | null => (d && isIsoDate(d) ? d : null);
 
 const rewindSlice = createSlice({
   name: "rewind",

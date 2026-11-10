@@ -34,6 +34,25 @@ export function toVintages<T extends { filed: string; val: number; accn: string 
   return out;
 }
 
+/**
+ * Extend a figure's history backwards with vintages of the same figure tagged
+ * under an older concept (a taxonomy change), i.e. only those filed before the
+ * canonical concept's first vintage. Concurrent concepts are never mixed: two
+ * tags filed in the same 10-K can legitimately hold different numbers.
+ */
+export function backfillVintages<V extends Vintage>(base: readonly V[], older: readonly V[]): V[] {
+  if (!base.length) return [...older];
+  const first = base[0];
+  const earlier = older.filter((v) => v.filed < first.filed || (v.filed === first.filed && v.accn < first.accn));
+  const out: V[] = [];
+  for (const v of [...earlier, ...base]) {
+    const last = out[out.length - 1];
+    if (last && last.value === v.value) continue;
+    out.push(v);
+  }
+  return out;
+}
+
 /** The vintage in force on `date` (filed <= date), or null if not yet reported. */
 export function asOf<V extends Vintage>(vintages: readonly V[], date: string): V | null {
   let found: V | null = null;

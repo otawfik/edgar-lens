@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { FIXTURE_ENTRY, FIXTURE_FACTS, FIXTURE_SUBMISSIONS } from "@/test/fixtures";
+import { FIXTURE_ENTRY, FIXTURE_FACTS, FIXTURE_SUBMISSIONS, M } from "@/test/fixtures";
 import { buildCompany } from "./normalize";
-import { fiscalYearOf, isAnnualSpan, isQuarterSpan, periodDays } from "./periods";
+import { fiscalYearOf, isAnnualSpan, isIsoDate, isQuarterSpan, periodDays } from "./periods";
 import { companyRevisions, computeRevisionStats, countFigures } from "./revisionStats";
 
 const { company } = buildCompany(FIXTURE_ENTRY, 1, [FIXTURE_FACTS], [FIXTURE_SUBMISSIONS]);
@@ -16,6 +16,13 @@ describe("periods", () => {
     expect(isQuarterSpan("2024-05-13", "2024-09-01")).toBe(true); // Costco 16-week Q4
     expect(isQuarterSpan("2024-01-01", "2024-06-30")).toBe(false);
     expect(periodDays("2024-01-01", "2024-12-31")).toBe(366);
+  });
+
+  it("validates calendar dates strictly", () => {
+    expect(isIsoDate("2024-02-29")).toBe(true);
+    expect(isIsoDate("2023-02-29")).toBe(false);
+    expect(isIsoDate("2020-02-30")).toBe(false);
+    expect(isIsoDate("2020-6-30")).toBe(false);
   });
 
   it("labels fiscal years ending Jan–May with the prior calendar year", () => {
@@ -36,37 +43,37 @@ describe("buildCompany", () => {
   it("keeps every value-changing vintage of a figure with its filing", () => {
     const fy22 = company.annual.revenue!.find(([end]) => end === "2022-12-31")!;
     expect(fy22[1].map(([filing, value]) => [filedOf(filing), value])).toEqual([
-      ["2023-02-15", 1000],
-      ["2024-02-15", 1050],
+      ["2023-02-15", 1000 * M],
+      ["2024-02-15", 1050 * M],
     ]);
     const fy23 = company.annual.revenue!.find(([end]) => end === "2023-12-31")!;
-    expect(fy23[1].map(([, value]) => value)).toEqual([1200, 1180]);
+    expect(fy23[1].map(([, value]) => value)).toEqual([1200 * M, 1180 * M]);
   });
 
   it("ignores 8-K facts", () => {
     const fy24 = company.annual.revenue!.find(([end]) => end === "2024-12-31")!;
-    expect(fy24[1]).toEqual([[expect.any(Number), 1300]]);
+    expect(fy24[1]).toEqual([[expect.any(Number), 1300 * M]]);
   });
 
   it("derives Q2–Q4 cash flow from YTD chains and flags them", () => {
     const ocf = Object.fromEntries(company.quarterly.operatingCashFlow!.map(([end, h, d]) => [end, { h, d }]));
     expect(ocf["2023-03-31"].d).toBeUndefined();
-    expect(ocf["2023-03-31"].h.map(([, v]) => v)).toEqual([40]);
+    expect(ocf["2023-03-31"].h.map(([, v]) => v)).toEqual([40 * M]);
     expect(ocf["2023-06-30"].d).toBe(1);
-    expect(ocf["2023-06-30"].h.map(([, v]) => v)).toEqual([50]); // 90 − 40
+    expect(ocf["2023-06-30"].h.map(([, v]) => v)).toEqual([50 * M]); // 90 − 40
     // Q3 = 9M − H1: 150 − 90 = 60 at the Q3 10-Q, then 140 − 90 = 50 when the 10-K restated 9M.
     expect(ocf["2023-09-30"].h.map(([f, v]) => [filedOf(f), v])).toEqual([
-      ["2023-11-01", 60],
-      ["2024-02-15", 50],
+      ["2023-11-01", 60 * M],
+      ["2024-02-15", 50 * M],
     ]);
     // Q4 = FY − 9M, both known only at the 10-K: 200 − 140 = 60.
-    expect(ocf["2023-12-31"].h.map(([, v]) => v)).toEqual([60]);
+    expect(ocf["2023-12-31"].h.map(([, v]) => v)).toEqual([60 * M]);
   });
 
   it("keeps directly tagged quarters over derived ones", () => {
     const q2 = company.quarterly.revenue!.find(([end]) => end === "2023-06-30")!;
     expect(q2[2]).toBeUndefined();
-    expect(q2[1][0][1]).toBe(300);
+    expect(q2[1][0][1]).toBe(300 * M);
   });
 
   it("keeps balance-sheet values only at fiscal period ends", () => {
@@ -99,8 +106,8 @@ describe("revision statistics", () => {
   it("measures the lag in days between the two filings", () => {
     const r = revs.find((r) => r.metric === "revenue" && r.end === "2022-12-31")!;
     expect(r.lagDays).toBe(365);
-    expect(r.from).toBe(1000);
-    expect(r.to).toBe(1050);
+    expect(r.from).toBe(1000 * M);
+    expect(r.to).toBe(1050 * M);
   });
 
   it("aggregates league tables that add up", () => {

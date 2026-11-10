@@ -1,6 +1,6 @@
 import { GraphQLError } from "graphql";
 import { METRICS } from "@/lib/edgar/concepts";
-import { fiscalYearOf, quarterLabel } from "@/lib/edgar/periods";
+import { fiscalYearOf, isIsoDate, quarterLabel } from "@/lib/edgar/periods";
 import { daysBetween, isLikelySplit } from "@/lib/edgar/pointInTime";
 import type { MaterialRevision } from "@/lib/edgar/revisionStats";
 import type { PeriodType as SnapshotPeriod, SnapshotCompany } from "@/lib/edgar/snapshot";
@@ -28,8 +28,6 @@ const periodType = (p: PeriodType | null | undefined): SnapshotPeriod => (p === 
 const periodEnum = (p: SnapshotPeriod): PeriodType => (p === "annual" ? "ANNUAL" : "QUARTERLY");
 const modelEnum = (m: SnapshotCompany["model"]) => m.toUpperCase() as BusinessModel;
 
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
-
 /** Reject out-of-range page sizes instead of silently clamping them. */
 function size(name: string, value: number | null | undefined, fallback: number, max: number): number {
   const n = value ?? fallback;
@@ -43,7 +41,7 @@ function size(name: string, value: number | null | undefined, fallback: number, 
 
 function date(name: string, value: string | null | undefined): string | null {
   if (value === null || value === undefined || value === "") return null;
-  if (!ISO_DATE.test(value) || Number.isNaN(Date.parse(`${value}T00:00:00Z`))) {
+  if (!isIsoDate(value)) {
     throw new GraphQLError(`"${name}" must be an ISO date (yyyy-mm-dd).`, {
       extensions: { code: "BAD_USER_INPUT", argument: name },
     });

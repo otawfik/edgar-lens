@@ -18,7 +18,7 @@
  */
 import { METRICS, METRIC_IDS, type MetricDef, type MetricId } from "./concepts";
 import { addDays, fiscalYearOf, isAnnualSpan, isQuarterSpan, periodDays } from "./periods";
-import { combineVintages, toVintages, type Vintage } from "./pointInTime";
+import { backfillVintages, combineVintages, toVintages, type Vintage } from "./pointInTime";
 import type { SnapshotCompany, SnapshotFiling, SnapshotPoint, SnapshotVintage } from "./snapshot";
 import type { UniverseEntry } from "../universe";
 
@@ -197,24 +197,33 @@ export interface ResolvedMetric {
 
 /**
  * Resolve a metric's concept chain period by period: for each period the first
- * concept in the chain that reports it wins. A company that tagged
- * `SalesRevenueNet` until 2017 and `RevenueFromContract...` after still gets
- * one continuous revenue series.
+ * concept in the chain that reports it wins, and later concepts covering the
+ * same period contribute their vintages. A company that tagged
+ * `SalesRevenueNet` until 2017 and `RevenueFromContract...` after gets one
+ * continuous revenue series whose FY2017 history starts at the original tag.
+ * Only vintages filed *before* the winning concept's first are taken from the
+ * fallbacks, so two tags filed together are never read as a restatement.
  */
 export function resolveMetric(def: MetricDef, gaap: ConceptSource): ResolvedMetric {
   const annual = new Map<string, Observation>();
   const quarterly = new Map<string, Observation>();
   const instants = new Map<string, Observation>();
+  const add = (m: Map<string, Observation>, end: string, o: Observation) => {
+    const cur = m.get(end);
+    if (!cur) m.set(end, o);
+    else if (cur.start === o.start && !cur.derived && !o.derived) {
+      m.set(end, { ...cur, history: backfillVintages(cur.history, o.history), inAnnualReport: cur.inAnnualReport || o.inAnnualReport });
+    }
+  };
   for (const concept of def.concepts) {
     const obs = collapseFacts(factsFor(def, gaap, concept));
     if (!obs.length) continue;
     if (def.kind === "stock") {
-      for (const [end, o] of instantObservations(obs)) if (!instants.has(end)) instants.set(end, o);
+      for (const [end, o] of instantObservations(obs)) add(instants, end, o);
       continue;
     }
-    for (const [end, o] of annualObservations(obs)) if (!annual.has(end)) annual.set(end, o);
-    for (const [end, o] of quarterlyObservations(obs, def.kind === "flow"))
-      if (!quarterly.has(end)) quarterly.set(end, o);
+    for (const [end, o] of annualObservations(obs)) add(annual, end, o);
+    for (const [end, o] of quarterlyObservations(obs, def.kind === "flow")) add(quarterly, end, o);
   }
   return { annual, quarterly, instants };
 }

@@ -6,6 +6,7 @@ import {
   daysBetween,
   isLikelySplit,
   isMaterialChange,
+  backfillVintages,
   toVintages,
   type Vintage,
 } from "./pointInTime";
@@ -34,6 +35,22 @@ describe("toVintages", () => {
       { filed: "2023-02-01", val: 1, accn: "0001" },
     ];
     expect(toVintages(facts).map((x) => x.value)).toEqual([1, 2]);
+  });
+});
+
+describe("backfillVintages", () => {
+  it("prepends an older concept's earlier filings to the canonical history", () => {
+    const old = [v("2018-02-01", 100)];
+    const renamed = [v("2019-02-01", 100), v("2020-02-01", 95)];
+    expect(backfillVintages(renamed, old).map((x) => [x.filed, x.value])).toEqual([
+      ["2018-02-01", 100],
+      ["2020-02-01", 95],
+    ]);
+  });
+  it("never mixes a concurrent concept filed alongside the canonical one", () => {
+    const canonical = [v("2019-02-01", 100)];
+    const other = [v("2019-02-01", 90), v("2020-02-01", 91)]; // same filings, a different line
+    expect(backfillVintages(canonical, other)).toEqual(canonical);
   });
 });
 

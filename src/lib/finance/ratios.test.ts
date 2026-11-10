@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FIXTURE_ENTRY, FIXTURE_FACTS, FIXTURE_SUBMISSIONS } from "@/test/fixtures";
+import { FIXTURE_ENTRY, FIXTURE_FACTS, FIXTURE_SUBMISSIONS, M } from "@/test/fixtures";
 import { buildCompany } from "../edgar/normalize";
 import { buildFinancials, lookupFor, valueAt, yearsBefore } from "./derive";
 import { computeRatio, median, rankAmong, type Lookup } from "./ratios";
@@ -59,8 +59,8 @@ describe("rankAmong / median", () => {
 describe("derive: point-in-time lookups", () => {
   it("reads values as known on a date", () => {
     const rev = fin.annual.metrics.get("revenue")!.get("2022-12-31")!;
-    expect(valueAt(rev)).toBe(1050);
-    expect(valueAt(rev, "2023-06-01")).toBe(1000);
+    expect(valueAt(rev)).toBe(1050 * M);
+    expect(valueAt(rev, "2023-06-01")).toBe(1000 * M);
     expect(valueAt(rev, "2022-06-01")).toBeNull();
   });
 

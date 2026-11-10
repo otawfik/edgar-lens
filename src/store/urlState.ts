@@ -6,6 +6,7 @@
  *   /company/AAPL?asOf=2020-06-30&vs=2018-12-31&period=quarterly
  *   /screener?sector=Information%20Technology,Health%20Care&q=app&operatingMargin=0.2..&sort=-revenue&watch=1
  */
+import { isIsoDate } from "@/lib/edgar/periods";
 import { RATIO_IDS, type RatioId } from "@/lib/finance/ratios";
 import { SECTORS, type Sector } from "@/lib/universe";
 import { initialRewindState, type RewindState } from "./rewindSlice";
@@ -17,7 +18,6 @@ import {
 } from "./screenerSlice";
 
 const SORT_FIELDS = new Set<string>(["ticker", "name", "sector", "revenue", "netIncome", "freeCashFlow", ...RATIO_IDS]);
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 function fmtNum(n: number): string {
   return String(Number(n.toPrecision(6)));
@@ -90,7 +90,7 @@ export function serializeRewind(r: RewindState): string {
 
 export function parseRewind(query: string | URLSearchParams): RewindState {
   const p = typeof query === "string" ? new URLSearchParams(query) : query;
-  const isoOrNull = (v: string | null) => (v && ISO_DATE.test(v) && !Number.isNaN(Date.parse(`${v}T00:00:00Z`)) ? v : null);
+  const isoOrNull = (v: string | null) => (v && isIsoDate(v) ? v : null);
   const asOf = isoOrNull(p.get("asOf"));
   let compareFrom = isoOrNull(p.get("vs"));
   if (compareFrom && asOf && compareFrom >= asOf) compareFrom = null;

@@ -10,7 +10,10 @@
 import type { CompanyFactsJson, RawFact, SubmissionsJson } from "@/lib/edgar/normalize";
 import type { UniverseEntry } from "@/lib/universe";
 
-const f = (
+/** Dollar figures are written in millions so the $1M materiality floor behaves as in real data. */
+export const M = 1e6;
+
+const fact = (
   start: string | undefined,
   end: string,
   val: number,
@@ -18,6 +21,11 @@ const f = (
   form: string,
   accn = `ACC-${filed}-${form}`,
 ): RawFact => ({ start, end, val, accn, form, filed, fy: Number(end.slice(0, 4)), fp: form.startsWith("10-K") ? "FY" : "Q", frame: undefined });
+
+const f = (start: string | undefined, end: string, val: number, filed: string, form: string, accn?: string) =>
+  fact(start, end, val * M, filed, form, accn);
+/** Per-share facts stay in dollars. */
+const e = fact;
 
 // Filings: 10-Q (Q1, Q2, Q3) and 10-K per year, 2022–2024.
 const K22 = "2023-02-15";
@@ -87,10 +95,10 @@ export const FIXTURE_FACTS: CompanyFactsJson = {
       EarningsPerShareDiluted: {
         units: {
           "USD/shares": [
-            f("2022-01-01", "2022-12-31", 4.0, K22, "10-K"),
-            f("2022-01-01", "2022-12-31", 2.0, K23, "10-K"), // 2-for-1 split
-            f("2023-01-01", "2023-12-31", 2.4, K23, "10-K"),
-            f("2024-01-01", "2024-12-31", 2.6, K24, "10-K"),
+            e("2022-01-01", "2022-12-31", 4.0, K22, "10-K"),
+            e("2022-01-01", "2022-12-31", 2.0, K23, "10-K"), // 2-for-1 split
+            e("2023-01-01", "2023-12-31", 2.4, K23, "10-K"),
+            e("2024-01-01", "2024-12-31", 2.6, K24, "10-K"),
           ],
         },
       },

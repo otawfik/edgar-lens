@@ -8,7 +8,7 @@ import { fromEnum, toEnum } from "@/lib/enums";
 import { METRIC_IDS } from "@/lib/edgar/concepts";
 import { RATIO_IDS } from "@/lib/finance/ratios";
 import { Dataset } from "@/server/dataset";
-import { FIXTURE_ENTRY, FIXTURE_FACTS, FIXTURE_SUBMISSIONS } from "@/test/fixtures";
+import { FIXTURE_ENTRY, FIXTURE_FACTS, FIXTURE_SUBMISSIONS, M } from "@/test/fixtures";
 import { MAX_COST, MAX_DEPTH, estimateCost, operationDepths } from "./limits";
 import { createGraphQLServer, schema } from "./yoga";
 
@@ -63,18 +63,18 @@ describe("as-of series", () => {
     const { data, errors } = await gql<{ company: { series: { label: string; value: number; revised: boolean }[] } }>(q);
     expect(errors).toBeUndefined();
     expect(data!.company.series.map((p) => [p.label, p.value, p.revised])).toEqual([
-      ["FY2021", 900, false],
-      ["FY2022", 1050, true],
-      ["FY2023", 1180, true],
-      ["FY2024", 1300, false],
+      ["FY2021", 900 * M, false],
+      ["FY2022", 1050 * M, true],
+      ["FY2023", 1180 * M, true],
+      ["FY2024", 1300 * M, false],
     ]);
   });
 
   it("rewinds to what was filed on the as-of date", async () => {
     const { data } = await gql<{ company: { series: { label: string; value: number; vintages: number; vintage: { filing: { form: string; filed: string; indexUrl: string } } }[] } }>(q, { asOf: "2023-06-30" });
     expect(data!.company.series.map((p) => [p.label, p.value, p.vintages])).toEqual([
-      ["FY2021", 900, 1],
-      ["FY2022", 1000, 1],
+      ["FY2021", 900 * M, 1],
+      ["FY2022", 1000 * M, 1],
     ]);
     expect(data!.company.series[1].vintage.filing).toMatchObject({ form: "10-K", filed: "2023-02-15" });
     expect(data!.company.series[1].vintage.filing.indexUrl).toMatch(/^https:\/\/www\.sec\.gov\/Archives\/edgar\/data\/1\//);
@@ -104,7 +104,7 @@ describe("diff between two dates", () => {
     expect(errors).toBeUndefined();
     const d = data!.company.diff;
     const rev = d.revised.find((r) => r.label === "Revenue" && r.periodLabel === "FY2022")!;
-    expect(rev).toMatchObject({ from: 1000, to: 1050, material: true, likelySplit: false, revisedIn: { filed: "2024-02-15" } });
+    expect(rev).toMatchObject({ from: 1000 * M, to: 1050 * M, material: true, likelySplit: false, revisedIn: { filed: "2024-02-15" } });
     expect(d.revised.find((r) => r.label === "Diluted EPS")).toMatchObject({ likelySplit: true });
     expect(d.materialCount).toBe(d.revised.filter((r) => r.material && !r.likelySplit).length);
     expect(d.added.map((a) => a.label)).toContain("FY2023");
