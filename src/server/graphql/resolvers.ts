@@ -7,7 +7,7 @@ import type { PeriodType as SnapshotPeriod, SnapshotCompany } from "@/lib/edgar/
 import { periodLabel, type CompanyFinancials, type DerivedMetricId, type FinVintage } from "@/lib/finance/derive";
 import { RATIO_IDS, RATIOS, type RatioId } from "@/lib/finance/ratios";
 import { fromEnum, toEnum } from "@/lib/enums";
-import { metricLabel, metricUnit, type Dataset, type PointView, type RevisionView } from "../dataset";
+import { countsAsRevision, metricLabel, metricUnit, type Dataset, type PointView, type RevisionView } from "../dataset";
 import type {
   BusinessModel,
   CompanyFilter,
@@ -90,6 +90,7 @@ function revisionFromView(fin: CompanyFinancials, r: RevisionView): Revision {
     lagDays: daysBetween(r.from.filed, r.to.filed),
     material: r.material,
     likelySplit: r.likelySplit,
+    derived: r.derived,
     firstReported: filingOf(c, r.from.filing),
     revisedIn: filingOf(c, r.to.filing),
   };
@@ -108,6 +109,7 @@ function revisionFromLog(c: SnapshotCompany, r: MaterialRevision): Revision {
     lagDays: r.lagDays,
     material: true,
     likelySplit: isLikelySplit(r.from, r.to, METRICS[r.metric].unit),
+    derived: false,
     firstReported: filingOf(c, r.fromFiling),
     revisedIn: filingOf(c, r.toFiling),
   };
@@ -262,11 +264,12 @@ export const resolvers: Resolvers = {
         from: d.from,
         to: d.to,
         revised: d.revised.map((r) => revisionFromView(fin, r)),
-        materialCount: d.revised.filter((r) => r.material && !r.likelySplit).length,
+        materialCount: d.revised.filter(countsAsRevision).length,
         added: d.added.map((p) => dataPoint(fin, p, d.to)),
         filingsBetween: d.filingsBetween.map((i) => filingOf(fin.company, i)),
       };
     },
+    revisionCount: (fin, _, { dataset }) => dataset.revisionLog(fin).length,
     revisions: (fin, { first }, { dataset }) =>
       dataset.revisionLog(fin).slice(0, size("first", first, 50, 200)).map((r) => revisionFromLog(fin.company, r)),
     ranking: (fin, _, { dataset }) => dataset.ranking(fin).map((r) => ({ ...r, ratio: ratioEnum(r.ratio) })),

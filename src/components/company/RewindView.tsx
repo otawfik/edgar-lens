@@ -141,7 +141,8 @@ export function RewindView({ ticker }: { ticker: string }) {
             Revision log
           </Typography>
           <Typography variant="body2" color="text.secondary">
-            {revisions.length} material change{revisions.length === 1 ? "" : "s"} to reported figures across all filings in the snapshot
+            {company.revisionCount} material change{company.revisionCount === 1 ? "" : "s"} to reported figures across all filings in the snapshot
+            {company.revisionCount > revisions.length ? `; newest ${revisions.length} listed` : ""}
           </Typography>
         </Box>
         {revisions.length ? (

@@ -21,6 +21,7 @@ export type AsOfDiff = {
   /** 10-K/10-Q filings made after `from` and on or before `to`. */
   filingsBetween: Array<Filing>;
   from: Scalars['String']['output'];
+  /** Reported figures with a material, non-split change (derived figures are not counted). */
   materialCount: Scalars['Int']['output'];
   /** Figures whose in-force value differs between the two dates, largest material change first. */
   revised: Array<Revision>;
@@ -60,6 +61,8 @@ export type Company = {
   /** Rank within GICS sector on each applicable ratio (latest figures). */
   ranking: Array<RatioRank>;
   ratio: Array<RatioPoint>;
+  /** How many material revisions the company has in total. */
+  revisionCount: Scalars['Int']['output'];
   /** Material revisions across the company's history, newest change first. Max 200. */
   revisions: Array<Revision>;
   /** EDGAR filing index for the company. */
@@ -447,6 +450,8 @@ export type Revision = {
   __typename?: 'Revision';
   /** Relative change, (to − from) / |from|. */
   change?: Maybe<Scalars['Float']['output']>;
+  /** Computed from other figures (free cash flow, untagged gross profit, a quarter from year-to-date values); it moved because its inputs did. */
+  derived: Scalars['Boolean']['output'];
   end: Scalars['String']['output'];
   firstReported: Filing;
   from: Scalars['Float']['output'];
@@ -455,7 +460,7 @@ export type Revision = {
   lagDays: Scalars['Int']['output'];
   /** Per-share figure that moved by a whole-number factor: a stock split, not a restatement. */
   likelySplit: Scalars['Boolean']['output'];
-  /** Above the materiality threshold (0.5% and $1M / $0.01) and not derived. */
+  /** Above the materiality threshold (0.5% and $1M / $0.01). */
   material: Scalars['Boolean']['output'];
   metric: Metric;
   period: PeriodType;
@@ -677,6 +682,7 @@ export type CompanyResolvers<ContextType = GraphQLContext, ParentType extends Re
   peers?: Resolver<Array<ResolversTypes['Company']>, ParentType, ContextType, RequireFields<CompanyPeersArgs, 'limit'>>;
   ranking?: Resolver<Array<ResolversTypes['RatioRank']>, ParentType, ContextType>;
   ratio?: Resolver<Array<ResolversTypes['RatioPoint']>, ParentType, ContextType, RequireFields<CompanyRatioArgs, 'id' | 'last' | 'period'>>;
+  revisionCount?: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
   revisions?: Resolver<Array<ResolversTypes['Revision']>, ParentType, ContextType, RequireFields<CompanyRevisionsArgs, 'first'>>;
   secUrl?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
   sector?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
@@ -858,6 +864,7 @@ export type RatioValueResolvers<ContextType = GraphQLContext, ParentType extends
 
 export type RevisionResolvers<ContextType = GraphQLContext, ParentType extends ResolversParentTypes['Revision'] = ResolversParentTypes['Revision']> = {
   change?: Resolver<Maybe<ResolversTypes['Float']>, ParentType, ContextType>;
+  derived?: Resolver<ResolversTypes['Boolean'], ParentType, ContextType>;
   end?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
   firstReported?: Resolver<ResolversTypes['Filing'], ParentType, ContextType>;
   from?: Resolver<ResolversTypes['Float'], ParentType, ContextType>;

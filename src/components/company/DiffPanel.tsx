@@ -17,6 +17,7 @@ import TableCell from "@mui/material/TableCell";
 import TableContainer from "@mui/material/TableContainer";
 import TableHead from "@mui/material/TableHead";
 import TableRow from "@mui/material/TableRow";
+import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
 import type { DiffQuery } from "@/graphql/types.generated";
 import { formatDate } from "@/lib/edgar/periods";
@@ -55,19 +56,24 @@ export function RevisionTable({ rows, showLag = true }: { rows: Revision[]; show
         </TableHead>
         <TableBody>
           {rows.map((r, i) => (
-            <TableRow key={`${r.metric}-${r.period}-${r.end}-${i}`} hover sx={{ opacity: r.material && !r.likelySplit ? 1 : 0.6 }}>
+            <TableRow key={`${r.metric}-${r.period}-${r.end}-${i}`} hover sx={{ "& td": { color: r.material && !r.likelySplit && !r.derived ? undefined : "text.secondary" } }}>
               <TableCell sx={{ fontWeight: 500 }}>
                 {r.label}
                 {r.likelySplit && <Chip size="small" label="split" sx={{ ml: 1 }} />}
-                {!r.material && !r.likelySplit && <Chip size="small" label="minor" variant="outlined" sx={{ ml: 1 }} />}
+                {!r.likelySplit && r.derived && (
+                  <Tooltip title="Computed from other lines (for example operating cash flow − capex), so it moved because they did. Not counted as a revision.">
+                    <Chip size="small" label="derived" variant="outlined" sx={{ ml: 1 }} />
+                  </Tooltip>
+                )}
+                {!r.material && !r.likelySplit && !r.derived && <Chip size="small" label="minor" variant="outlined" sx={{ ml: 1 }} />}
               </TableCell>
               <TableCell sx={figures}>{r.periodLabel}</TableCell>
               <TableCell align="right" sx={figures}>
                 <Box component="span" title={`${r.firstReported.form} filed ${formatDate(r.firstReported.filed)}`}>{fmt(r.metric, r.from)}</Box>
               </TableCell>
               <TableCell align="right" sx={{ ...figures, fontWeight: 600 }}>{fmt(r.metric, r.to)}</TableCell>
-              <TableCell align="right" sx={{ ...figures, color: (r.change ?? 0) < 0 ? "error.main" : "success.main" }}>
-                {formatChange(r.change)}
+              <TableCell align="right" sx={figures}>
+                <Box component="span" sx={{ color: (r.change ?? 0) < 0 ? "error.main" : "success.main" }}>{formatChange(r.change)}</Box>
               </TableCell>
               {showLag && <TableCell align="right" sx={figures}>{r.lagDays} d</TableCell>}
               <TableCell>
@@ -91,8 +97,11 @@ export function DiffPanel({ ticker, filingDates }: { ticker: string; filingDates
   const { asOf, compareFrom } = useAppSelector((s) => s.rewind);
   const to = asOf ?? new Date().toISOString().slice(0, 10);
   const earlier = filingDates.filter((d) => d < to);
+  // A date from the URL need not be a filing date; keep it selectable so the control shows it.
+  const options = compareFrom && !earlier.includes(compareFrom) ? [...earlier, compareFrom].sort() : earlier;
   const { data, isFetching, error } = useDiffQuery({ ticker, from: compareFrom ?? "", to }, { skip: !compareFrom });
   const diff = data?.company?.diff;
+  const derivedCount = diff?.revised.filter((r) => r.derived && r.material && !r.likelySplit).length ?? 0;
 
   return (
     <Paper sx={{ p: 2 }} data-testid="diff-panel">
@@ -115,7 +124,7 @@ export function DiffPanel({ ticker, filingDates }: { ticker: string; filingDates
             <MenuItem value="">
               <em>None</em>
             </MenuItem>
-            {[...earlier].reverse().map((d) => (
+            {[...options].reverse().map((d) => (
               <MenuItem key={d} value={d} sx={figures}>
                 {formatDate(d)}
               </MenuItem>
@@ -135,7 +144,8 @@ export function DiffPanel({ ticker, filingDates }: { ticker: string; filingDates
         <Stack spacing={2}>
           <Stack direction="row" sx={{ flexWrap: "wrap", gap: 1 }}>
             <Chip color="secondary" label={`${diff.materialCount} material revision${diff.materialCount === 1 ? "" : "s"}`} data-testid="material-count" />
-            <Chip variant="outlined" label={`${diff.revised.length - diff.materialCount} minor / split-adjusted`} />
+            {derivedCount > 0 && <Chip variant="outlined" label={`${derivedCount} derived`} />}
+            <Chip variant="outlined" label={`${diff.revised.length - diff.materialCount - derivedCount} minor / split-adjusted`} />
             <Chip variant="outlined" label={`${diff.added.length} new figures`} />
             <Chip variant="outlined" label={`${diff.filingsBetween.length} filings between`} />
           </Stack>

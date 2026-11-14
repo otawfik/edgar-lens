@@ -96,9 +96,11 @@ export interface RevisionView {
   end: string;
   from: FinVintage;
   to: FinVintage;
-  /** Material by the snapshot's threshold (0.5% and $1M / $0.01). */
+  /** Above the snapshot's threshold (0.5% and $1M / $0.01). */
   material: boolean;
   likelySplit: boolean;
+  /** Computed from other figures (FCF, untagged gross profit, a quarter from YTD). */
+  derived: boolean;
 }
 
 export interface AsOfDiff {
@@ -202,8 +204,8 @@ export class Dataset {
   /**
    * Every figure whose in-force value differs between two dates, plus the
    * figures that did not exist on the first date. Derived points are included
-   * (they are what a reader would have seen) but flagged, so the material
-   * count only uses reported figures.
+   * (they are what a reader would have seen) but flagged: they move because
+   * their inputs moved, so counting them would count one restatement twice.
    */
   diff(fin: CompanyFinancials, from: string, to: string): AsOfDiff {
     const [lo, hi] = from <= to ? [from, to] : [to, from];
@@ -221,8 +223,9 @@ export class Dataset {
               end: p.end,
               from: change.from,
               to: change.to,
-              material: !p.derived && isMaterialChange(change.from.value, change.to.value, unit),
+              material: isMaterialChange(change.from.value, change.to.value, unit),
               likelySplit: isLikelySplit(change.from.value, change.to.value, unit),
+              derived: p.derived,
             });
           } else if (!vintageAt(p, lo)) {
             const v = this.view(metric, type, p, hi);
@@ -232,7 +235,9 @@ export class Dataset {
       }
     }
     const rel = (r: RevisionView) => Math.abs(r.to.value - r.from.value) / Math.max(Math.abs(r.from.value), 1e-9);
-    revised.sort((a, b) => Number(b.material) - Number(a.material) || rel(b) - rel(a));
+    // Reported material revisions first, then derived consequences, then noise.
+    const rank = (r: RevisionView) => (countsAsRevision(r) ? 0 : r.material && !r.likelySplit ? 1 : 2);
+    revised.sort((a, b) => rank(a) - rank(b) || rel(b) - rel(a));
     added.sort((a, b) => b.end.localeCompare(a.end) || a.metric.localeCompare(b.metric));
     const filingsBetween = fin.company.filings
       .map((f, i) => [f, i] as const)
@@ -389,6 +394,11 @@ function headline(ch: FilingChange): string {
   const ni = ch.metrics.find((m) => m.metric === "netIncome");
   if (ni?.yoy != null) parts.push(`net income ${formatChange(ni.yoy)}`);
   return parts.length ? parts.join(" · ") : "No comparable figures.";
+}
+
+/** A restatement of a reported figure: material, not a split, not derived. */
+export function countsAsRevision(r: Pick<RevisionView, "material" | "likelySplit" | "derived">): boolean {
+  return r.material && !r.likelySplit && !r.derived;
 }
 
 export function metricLabel(id: DerivedMetricId): string {

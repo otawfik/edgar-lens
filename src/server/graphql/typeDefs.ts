@@ -148,6 +148,8 @@ export const typeDefs = /* GraphQL */ `
     diff(from: String!, to: String!): AsOfDiff!
     "Material revisions across the company's history, newest change first. Max 200."
     revisions(first: Int = 50): [Revision!]!
+    "How many material revisions the company has in total."
+    revisionCount: Int!
     "Rank within GICS sector on each applicable ratio (latest figures)."
     ranking: [RatioRank!]!
     "Same-sector companies closest in revenue. Max 10."
@@ -265,8 +267,10 @@ export const typeDefs = /* GraphQL */ `
     change: Float
     "Days between the two filings."
     lagDays: Int!
-    "Above the materiality threshold (0.5% and $1M / $0.01) and not derived."
+    "Above the materiality threshold (0.5% and $1M / $0.01)."
     material: Boolean!
+    "Computed from other figures (free cash flow, untagged gross profit, a quarter from year-to-date values); it moved because its inputs did."
+    derived: Boolean!
     "Per-share figure that moved by a whole-number factor: a stock split, not a restatement."
     likelySplit: Boolean!
     firstReported: Filing!
@@ -278,6 +282,7 @@ export const typeDefs = /* GraphQL */ `
     to: String!
     "Figures whose in-force value differs between the two dates, largest material change first."
     revised: [Revision!]!
+    "Reported figures with a material, non-split change (derived figures are not counted)."
     materialCount: Int!
     "Figures first filed after \`from\` and on or before \`to\`, newest period first."
     added: [DataPoint!]!

@@ -28,6 +28,7 @@ export const REVISION_FIELDS = /* GraphQL */ `
     lagDays
     material
     likelySplit
+    derived
     firstReported {
       ...FilingFields
     }
@@ -180,7 +181,8 @@ export const COMPANY = /* GraphQL */ `
         label
         value
       }
-      revisions(first: 100) {
+      revisionCount
+      revisions(first: 200) {
         ...RevisionFields
       }
       filings(first: 8) {

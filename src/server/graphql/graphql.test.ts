@@ -97,16 +97,16 @@ describe("as-of series", () => {
 
 describe("diff between two dates", () => {
   it("lists revised and newly filed figures with the filings between", async () => {
-    const { data, errors } = await gql<{ company: { diff: { materialCount: number; revised: { label: string; periodLabel: string; from: number; to: number; material: boolean; likelySplit: boolean; revisedIn: { filed: string } }[]; added: { label: string }[]; filingsBetween: { form: string; filed: string }[] } } }>(
+    const { data, errors } = await gql<{ company: { diff: { materialCount: number; revised: { label: string; periodLabel: string; from: number; to: number; material: boolean; likelySplit: boolean; derived: boolean; revisedIn: { filed: string } }[]; added: { label: string }[]; filingsBetween: { form: string; filed: string }[] } } }>(
       /* GraphQL */ `{ company(ticker: "FIX") { diff(from: "2023-06-30", to: "2024-06-30") {
-        materialCount revised { label periodLabel from to material likelySplit revisedIn { filed } } added { label } filingsBetween { form filed } } } }`,
+        materialCount revised { label periodLabel from to material likelySplit derived revisedIn { filed } } added { label } filingsBetween { form filed } } } }`,
     );
     expect(errors).toBeUndefined();
     const d = data!.company.diff;
     const rev = d.revised.find((r) => r.label === "Revenue" && r.periodLabel === "FY2022")!;
     expect(rev).toMatchObject({ from: 1000 * M, to: 1050 * M, material: true, likelySplit: false, revisedIn: { filed: "2024-02-15" } });
     expect(d.revised.find((r) => r.label === "Diluted EPS")).toMatchObject({ likelySplit: true });
-    expect(d.materialCount).toBe(d.revised.filter((r) => r.material && !r.likelySplit).length);
+    expect(d.materialCount).toBe(d.revised.filter((r) => r.material && !r.likelySplit && !r.derived).length);
     expect(d.added.map((a) => a.label)).toContain("FY2023");
     expect(d.filingsBetween.map((f) => f.filed)).toEqual(["2023-08-01", "2023-11-01", "2024-02-15"]);
   });
