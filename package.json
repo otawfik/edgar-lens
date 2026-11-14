@@ -14,7 +14,9 @@
     "data:fetch": "tsx scripts/fetch-sec.ts",
     "data:build": "tsx scripts/build-snapshot.ts",
     "data:refresh": "tsx scripts/fetch-sec.ts --force && tsx scripts/build-snapshot.ts",
-    "codegen": "graphql-codegen --config codegen.ts"
+    "codegen": "graphql-codegen --config codegen.ts",
+    "screenshots": "tsx scripts/screenshots.ts",
+    "measure": "tsx scripts/measure.ts"
   },
   "dependencies": {
     "@emotion/cache": "^11.14.0",
