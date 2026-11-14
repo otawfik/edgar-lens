@@ -70,11 +70,12 @@ export const figures = {
 } as const;
 
 /**
- * Categorical series colours, in fixed order (never cycled), validated for
- * colour-vision deficiency on both surfaces. Light-mode slots 3–5 sit under
- * 3:1 contrast, which is why every chart also has a table view and a legend.
+ * Categorical series colours, in fixed order: ledger green, brass, slate blue,
+ * then two quieter slots. The first three are the only ones any chart uses
+ * together; they differ in lightness as well as hue, and each clears 3:1
+ * against its paper (light 8.0 / 3.7 / 5.0, dark 8.5 / 8.4 / 7.9).
  */
 export const SERIES = {
-  light: ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4"],
-  dark: ["#3987e5", "#d95926", "#199e70", "#c98500", "#d55181"],
+  light: ["#0F5B4A", "#C2731A", "#4C6FB0", "#8A5A9E", "#7A8B84"],
+  dark: ["#5CC8A8", "#E3AA55", "#8FB0EA", "#C59BD6", "#A9B7B1"],
 } as const;

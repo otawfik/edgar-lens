@@ -135,7 +135,7 @@ export function MarginChart({ data }: { data: Company }) {
         }))}
         grid={{ horizontal: true }}
         slotProps={{ legend: { position: { vertical: "bottom", horizontal: "center" } } }}
-        margin={{ left: 0, right: 8, top: 8, bottom: 0 }}
+        margin={{ left: 0, right: 24, top: 8, bottom: 0 }}
         sx={{ "& .MuiLineElement-root": { strokeWidth: 2 } }}
       />
     </Paper>

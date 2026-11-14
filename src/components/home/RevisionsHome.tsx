@@ -111,7 +111,7 @@ export function RevisionsHome() {
 
   return (
     <Stack spacing={3}>
-      <Box sx={{ py: { xs: 2, md: 4 }, textAlign: "center", maxWidth: 820, mx: "auto" }}>
+      <Box sx={{ py: { xs: 2, md: 4 }, maxWidth: 820 }}>
         <Typography variant="h1" component="h1" sx={{ fontSize: { xs: "1.9rem", md: "2.5rem" }, mb: 1.5 }}>
           Rewind any company&apos;s financials to what was known on any past date
         </Typography>
@@ -120,10 +120,8 @@ export function RevisionsHome() {
           history, shows a company&apos;s statements as they stood on any filing date, and lists exactly which numbers
           were revised, by how much, and where.
         </Typography>
-        <Box sx={{ display: "flex", justifyContent: "center" }}>
-          <CompanySearch autoFocus size="medium" />
-        </Box>
-        <Stack direction="row" sx={{ justifyContent: "center", flexWrap: "wrap", gap: 1, mt: 2 }}>
+        <CompanySearch autoFocus size="medium" />
+        <Stack direction="row" sx={{ flexWrap: "wrap", gap: 1, mt: 2 }}>
           {[
             ["GE", "GE — a decade of divestiture restatements"],
             ["IBM", "IBM — FY2019 revenue after the Kyndryl spin"],
