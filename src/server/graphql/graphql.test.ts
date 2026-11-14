@@ -112,6 +112,20 @@ describe("diff between two dates", () => {
     expect(d.filingsBetween.map((f) => f.filed)).toEqual(["2023-08-01", "2023-11-01", "2024-02-15"]);
   });
 
+  it("flags derived figures and leaves them out of the material count", async () => {
+    // The FY2023 10-K restates 9M operating cash flow (150 → 140), which moves the derived Q3.
+    const { data, errors } = await gql<{ company: { diff: { materialCount: number; revised: { label: string; periodLabel: string; from: number; to: number; material: boolean; likelySplit: boolean; derived: boolean }[] } } }>(
+      /* GraphQL */ `{ company(ticker: "FIX") { diff(from: "2023-12-01", to: "2024-06-30") {
+        materialCount revised { label periodLabel from to material likelySplit derived } } } }`,
+    );
+    expect(errors).toBeUndefined();
+    const d = data!.company.diff;
+    const q3 = d.revised.find((r) => r.label === "Operating cash flow" && r.periodLabel === "Sep 2023")!;
+    expect(q3).toMatchObject({ from: 60 * M, to: 50 * M, material: true, derived: true });
+    expect(d.materialCount).toBe(d.revised.filter((r) => r.material && !r.likelySplit && !r.derived).length);
+    expect(d.materialCount).toBeLessThan(d.revised.length);
+  });
+
   it("accepts the dates in either order", async () => {
     const a = await gql<{ company: { diff: { from: string; to: string } } }>(`{ company(ticker: "FIX") { diff(from: "2024-06-30", to: "2023-06-30") { from to } } }`);
     expect(a.data!.company.diff).toEqual({ from: "2023-06-30", to: "2024-06-30" });
