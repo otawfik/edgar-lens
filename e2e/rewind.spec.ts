@@ -4,7 +4,7 @@ test.describe("home", () => {
   test("shows revision statistics and leads to a company", async ({ page }) => {
     await page.goto("/");
     await expect(page.getByRole("heading", { level: 1 })).toContainText("Rewind any company");
-    await expect(page.getByText("Reported figures")).toBeVisible();
+    await expect(page.getByText("Reported figures", { exact: true })).toBeVisible();
     await expect(page.getByRole("grid", { name: "Revision league table" })).toBeVisible();
     // The league table is sorted by rate; its first ticker is a link to the company page.
     const first = page.getByRole("grid", { name: "Revision league table" }).getByRole("row").nth(1).getByRole("link").first();

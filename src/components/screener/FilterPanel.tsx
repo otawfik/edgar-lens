@@ -64,7 +64,7 @@ export function FilterPanel() {
       <Section title="Presets">
         <Stack direction="row" sx={{ flexWrap: "wrap", gap: 1 }}>
           {PRESETS.map((p) => (
-            <Tooltip key={p.id} title={p.description}>
+            <Tooltip key={p.id} title={p.description} describeChild>
               <Chip label={p.label} variant="outlined" onClick={() => dispatch(applyPreset(p.id))} />
             </Tooltip>
           ))}
