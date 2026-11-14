@@ -8,6 +8,7 @@ import Slider from "@mui/material/Slider";
 import Stack from "@mui/material/Stack";
 import Tooltip from "@mui/material/Tooltip";
 import Typography from "@mui/material/Typography";
+import useMediaQuery from "@mui/material/useMediaQuery";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import ChevronRightIcon from "@mui/icons-material/ChevronRight";
 import { formatDate } from "@/lib/edgar/periods";
@@ -26,6 +27,30 @@ export function stopIndex(dates: readonly string[], asOf: string | null): number
   let i = -1;
   for (let k = 0; k < dates.length; k++) if (dates[k] <= asOf) i = k;
   return i;
+}
+
+/**
+ * Year labels for the slider: the first stop of each year, dropped when it
+ * would sit closer than `minGap` (a fraction of the track) to the label before
+ * it or to "Now". Stops are evenly spaced by filing, not by calendar time, so
+ * years with few stops in the snapshot crowd together.
+ */
+export function yearMarks(stops: readonly string[], minGap: number): { value: number; label: string }[] {
+  const max = stops.length;
+  const gap = Math.max(1, Math.ceil(max * minGap));
+  const seen = new Set<string>();
+  const marks: { value: number; label: string }[] = [];
+  let lastLabelled = -Infinity;
+  stops.forEach((d, i) => {
+    const y = d.slice(0, 4);
+    if (seen.has(y)) return;
+    seen.add(y);
+    if (i - lastLabelled < gap || max - i < gap) return;
+    marks.push({ value: i, label: y });
+    lastLabelled = i;
+  });
+  marks.push({ value: max, label: "Now" });
+  return marks;
 }
 
 /**
@@ -48,19 +73,8 @@ export function DateScrubber({ stops, filings }: { stops: string[]; filings: { f
   const value = before ? 0 : index;
   const select = (i: number) => dispatch(setAsOf(i >= max ? null : stops[i]));
   const label = (i: number) => (i >= max ? "Today" : formatDate(stops[i]));
-  const years = useMemo(() => {
-    const seen = new Set<string>();
-    const marks: { value: number; label: string }[] = [];
-    stops.forEach((d, i) => {
-      const y = d.slice(0, 4);
-      if (!seen.has(y) && (i === 0 || Number(y) % 2 === 0)) {
-        seen.add(y);
-        marks.push({ value: i, label: y });
-      }
-    });
-    marks.push({ value: max, label: "Now" });
-    return marks;
-  }, [stops, max]);
+  const narrow = useMediaQuery("(max-width:599.95px)");
+  const years = useMemo(() => yearMarks(stops, narrow ? 0.2 : 0.07), [stops, narrow]);
 
   return (
     <Box data-testid="date-scrubber">
