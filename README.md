@@ -58,7 +58,7 @@ Everything here is measured from the committed snapshot or from a local run. Not
 |---|---|
 | Companies | 102 large-cap US filers across 11 sectors |
 | Raw SEC facts scanned | 2,982,294 |
-| Reported figures kept (line item × period) | 41,868, across 21 line items |
+| Reported figures kept (line item × period) | 41,868, across 20 line items |
 | Distinct values over time (vintages) | 52,998 |
 | 10-K / 10-Q filings referenced | 3,204, filed Nov 2011 to Nov 2026 |
 | Figures materially changed by a later filing | 1,658 (4.0%), 62 of them more than once |
