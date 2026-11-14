@@ -55,7 +55,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
           <ThemeProvider theme={theme}>
             <CssBaseline enableColorScheme />
             <StoreProvider>
-              <AppShell snapshotDate={snapshot.generatedAt} companies={snapshot.stats.companies}>
+              <AppShell snapshotDate={snapshot.fetchedAt} companies={snapshot.stats.companies}>
                 {children}
               </AppShell>
             </StoreProvider>

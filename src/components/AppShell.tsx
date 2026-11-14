@@ -115,7 +115,7 @@ export function AppShell({
           <a href="https://www.sec.gov/search-filings/edgar-application-programming-interfaces" target="_blank" rel="noreferrer">
             SEC EDGAR XBRL company facts
           </a>{" "}
-          (public domain), snapshot of {formatDate(snapshotDate.slice(0, 10))}. Every figure is shown as the company filed it,
+          (public domain), fetched {formatDate(snapshotDate.slice(0, 10))}. Every figure is shown as the company filed it,
           and as it later changed it; not investment advice.
         </Typography>
       </Box>

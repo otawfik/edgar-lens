@@ -5,7 +5,7 @@
  *
  *   npm run data:build
  */
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
   buildCompany,
@@ -35,6 +35,7 @@ async function main() {
   let filings = 0;
   let earliestFiled = "9999-99-99";
   let latestFiled = "";
+  let fetchedAt = 0;
 
   for (const entry of UNIVERSE) {
     const cik = byTicker.get(entry.ticker);
@@ -46,6 +47,10 @@ async function main() {
     const subs = await Promise.all(
       ciks.map((c) => readJson<SubmissionsJson>(`submissions/CIK${pad(c)}.json`)),
     );
+    for (const c of ciks) {
+      const { mtimeMs } = await stat(path.join(CACHE, `companyfacts/CIK${pad(c)}.json`));
+      if (mtimeMs > fetchedAt) fetchedAt = mtimeMs;
+    }
     const { company, rawFacts } = buildCompany(entry, cik, facts, subs);
     companies.push(company);
     rawFactsScanned += rawFacts;
@@ -63,6 +68,7 @@ async function main() {
   const snapshot: Snapshot = {
     version: 2,
     generatedAt: new Date().toISOString(),
+    fetchedAt: new Date(fetchedAt).toISOString(),
     source: "SEC EDGAR XBRL company facts (data.sec.gov), public domain",
     stats: { companies: companies.length, rawFactsScanned, figures, vintages, filings, earliestFiled, latestFiled },
     revisions: computeRevisionStats(companies),

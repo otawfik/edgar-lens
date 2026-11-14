@@ -16,6 +16,7 @@ const { company } = buildCompany(FIXTURE_ENTRY, 1, [FIXTURE_FACTS], [FIXTURE_SUB
 const snapshot: Snapshot = {
   version: 2,
   generatedAt: "2026-01-01T00:00:00Z",
+  fetchedAt: "2026-01-01T00:00:00Z",
   source: "fixture",
   stats: { companies: 1, rawFactsScanned: 0, figures: 0, vintages: 0, filings: company.filings.length, earliestFiled: "2022-02-15", latestFiled: "2025-02-15" },
   revisions: computeRevisionStats([company]),

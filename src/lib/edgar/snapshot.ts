@@ -97,7 +97,10 @@ export interface RevisionStats {
 
 export interface Snapshot {
   version: 2;
+  /** When this file was built. */
   generatedAt: string;
+  /** When the SEC data behind it was downloaded (newest file in the raw cache). */
+  fetchedAt: string;
   source: string;
   stats: {
     companies: number;
