@@ -7,6 +7,7 @@ import {
   isLikelySplit,
   isMaterialChange,
   backfillVintages,
+  isRoundingOf,
   toVintages,
   type Vintage,
 } from "./pointInTime";
@@ -35,6 +36,78 @@ describe("toVintages", () => {
       { filed: "2023-02-01", val: 1, accn: "0001" },
     ];
     expect(toVintages(facts).map((x) => x.value)).toEqual([1, 2]);
+  });
+
+  it("lets the later accession win when two filings on one day disagree", () => {
+    // A 10-K and its same-day 10-K/A: as of that date the amendment is in force.
+    const facts = [
+      { filed: "2023-02-01", val: 1010, accn: "0000000001-23-000002" },
+      { filed: "2023-02-01", val: 1000, accn: "0000000001-23-000001" },
+    ];
+    const history = toVintages(facts);
+    expect(history).toHaveLength(2);
+    expect(asOf(history, "2023-02-01")?.value).toBe(1010);
+    expect(asOf(history, "2023-01-31")).toBeNull();
+  });
+
+  it("collapses same-day filings that agree into one vintage", () => {
+    const facts = [
+      { filed: "2023-02-01", val: 1000, accn: "b" },
+      { filed: "2023-02-01", val: 1000, accn: "a" },
+    ];
+    expect(toVintages(facts)).toEqual([{ filed: "2023-02-01", value: 1000, accn: "a" }]);
+  });
+
+  it("does not treat a figure quoted at coarser precision as a new value", () => {
+    const facts = [
+      { filed: "2020-02-25", val: 77_147_000_000, accn: "a" },
+      { filed: "2020-04-28", val: 77_000_000_000, accn: "b" }, // "$77 billion" in a 10-Q note
+      { filed: "2021-02-23", val: 77_147_000_000, accn: "c" },
+      { filed: "2022-02-22", val: 57_714_000_000, accn: "d" }, // the real restatement
+    ];
+    expect(toVintages(facts).map((x) => [x.filed, x.value])).toEqual([
+      ["2020-02-25", 77_147_000_000],
+      ["2022-02-22", 57_714_000_000],
+    ]);
+  });
+
+  it("keeps a restatement to a value in force after a later return to the original", () => {
+    const facts = [
+      { filed: "2023-02-01", val: 1000, accn: "a" },
+      { filed: "2024-02-01", val: 1050, accn: "b" },
+      { filed: "2025-02-01", val: 1000, accn: "c" },
+    ];
+    expect(toVintages(facts).map((x) => x.value)).toEqual([1000, 1050, 1000]);
+  });
+});
+
+describe("isRoundingOf", () => {
+  it("recognises the same number at coarser precision", () => {
+    expect(isRoundingOf(77_000_000_000, 77_147_000_000)).toBe(true);
+    expect(isRoundingOf(1_300_000_000, 1_314_000_000)).toBe(true);
+    expect(isRoundingOf(1.2, 1.23)).toBe(true); // per-share
+  });
+  it("rejects real changes, finer precision and equal values", () => {
+    expect(isRoundingOf(57_714_000_000, 77_147_000_000)).toBe(false);
+    expect(isRoundingOf(78_000_000_000, 77_147_000_000)).toBe(false); // not what it rounds to
+    expect(isRoundingOf(77_147_000_000, 77_000_000_000)).toBe(false); // more precise: a refinement, kept
+    expect(isRoundingOf(3_000_000_000, 2_739_000_000)).toBe(false); // one significant digit: too coarse to call
+    expect(isRoundingOf(1000, 1000)).toBe(false);
+    expect(isRoundingOf(2.0, 4.0)).toBe(false); // a split
+  });
+});
+
+describe("missing periods", () => {
+  it("has nothing in force for a period before its first filing, on any earlier date", () => {
+    const fy2024 = [v("2025-02-15", 1300)];
+    expect(asOf(fy2024, "2024-12-31")).toBeNull(); // the year has ended but nothing is filed
+    expect(changeBetween(fy2024, "2024-12-31", "2025-12-31")).toBeNull(); // new, not revised
+  });
+  it("leaves a derived figure undefined until both inputs exist", () => {
+    const fullYear = [v("2024-02-15", 200)];
+    expect(combineVintages(fullYear, [], (a, b) => a - b)).toEqual([]);
+    const nineMonths = [v("2024-03-01", 140)]; // filed after the full year
+    expect(combineVintages(fullYear, nineMonths, (a, b) => a - b).map((x) => x.filed)).toEqual(["2024-03-01"]);
   });
 });
 

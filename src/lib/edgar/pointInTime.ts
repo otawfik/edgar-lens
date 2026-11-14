@@ -14,10 +14,40 @@ export interface Vintage {
   accn: string;
 }
 
+/** Values are compared in ten-thousandths so per-share cents stay exact. */
+const SCALE = 10_000;
+
+/** The power of ten a (scaled, integer) value is rounded to: 77_000 → 1_000. */
+function roundingUnit(n: number): number {
+  n = Math.abs(n);
+  if (n === 0) return 1;
+  let unit = 1;
+  while (n % (unit * 10) === 0) unit *= 10;
+  return unit;
+}
+
+/**
+ * Is `next` just `prev` quoted at coarser precision? Filings tag figures in
+ * running text as well as in the statements, so IBM's FY2019 revenue of
+ * $77,147M reappears in a later 10-Q as "$77 billion" (77,000,000,000). That is
+ * the same number, not a new one. A value quoted to a single significant
+ * digit ("about $3 billion") is too coarse to call either way and is kept as
+ * a change, so a real restatement is never hidden by this rule.
+ */
+export function isRoundingOf(next: number, prev: number): boolean {
+  const a = Math.round(next * SCALE);
+  const b = Math.round(prev * SCALE);
+  if (a === b) return false;
+  const unit = roundingUnit(a);
+  if (Math.abs(a) / unit < 10) return false;
+  return unit > roundingUnit(b) && Math.round(b / unit) * unit === a;
+}
+
 /**
  * Collapse every tagging of one fact into its value-changing vintages: the
  * first filing, then only filings whose value differs from the previous one.
- * Re-reporting an unchanged comparative is not a revision.
+ * Re-reporting an unchanged comparative is not a revision, and neither is
+ * quoting the figure in force at coarser precision.
  */
 export function toVintages<T extends { filed: string; val: number; accn: string }>(
   facts: readonly T[],
@@ -28,7 +58,7 @@ export function toVintages<T extends { filed: string; val: number; accn: string 
   const out: Vintage[] = [];
   for (const f of sorted) {
     const last = out[out.length - 1];
-    if (last && last.value === f.val) continue;
+    if (last && (last.value === f.val || isRoundingOf(f.val, last.value))) continue;
     out.push({ filed: f.filed, value: f.val, accn: f.accn });
   }
   return out;
