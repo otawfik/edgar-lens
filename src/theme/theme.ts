@@ -57,6 +57,10 @@ export const theme = createTheme({
     MuiChip: {
       styleOverrides: { root: { fontWeight: 500 } },
     },
+    MuiToggleButton: {
+      // The default unselected colour (54% black) is 4.47:1 on the page ground.
+      styleOverrides: { root: { color: "var(--mui-palette-text-secondary)" } },
+    },
     MuiTooltip: {
       defaultProps: { arrow: true },
     },

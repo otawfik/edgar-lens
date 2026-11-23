@@ -73,7 +73,8 @@ export function LineItemTable({ asOfData, latestData, asOf }: { asOfData: Compan
           for its history
         </Typography>
       </Box>
-      <TableContainer sx={{ maxWidth: "100%" }}>
+      {/* Scrolls sideways on narrow screens: focusable, so the keyboard can scroll it too. */}
+      <TableContainer tabIndex={0} role="region" aria-label="Financial line items, scrollable" sx={{ maxWidth: "100%" }}>
         <Table size="small" aria-label="Financial line items by period" sx={{ minWidth: 640 }}>
           <TableHead>
             <TableRow>
