@@ -91,7 +91,7 @@ This is a single client on the same machine as the server. It says nothing about
 | `/screener` | 524 kB | 290 kB | 897 kB |
 | `/company/GE` | 546 kB | 414 kB | 1,295 kB |
 
-"Before" is commit `0d61550`, measured with the same script on the same machine. What changed: the data grid is gone (two tables of about a hundred rows are plain tables with their own sort), the home page's four-bar chart is CSS, the charting library loads in its own chunk on the company page only, the watchlist drawer loads when first opened, and text inputs no longer pull in MUI's menu and modal. Of the 290 kB, about 115 kB is React and the Next runtime; `SCRIPTS=1 npm run measure` lists every script. The company page is still the heaviest because of the charts (96 kB).
+"Before" is commit `0d61550`, measured with the same script on the same machine. What changed: the data grid is gone (a table of about a hundred rows is a plain table with its own sort), the home page's four-bar chart is CSS, the charting library loads in its own chunk on the company page only, the watchlist drawer loads when first opened, and text inputs no longer pull in MUI's menu and modal. Of the 290 kB, about 115 kB is React and the Next runtime; `SCRIPTS=1 npm run measure` lists every script. The company page is still the heaviest because of the charts (96 kB).
 
 **Tests:** 93 unit tests (Vitest) and 21 end-to-end tests (Playwright, against the production build). Nine of the end-to-end tests run axe-core's WCAG 2 A/AA rules over the home, company and screener pages in light mode, dark mode and at 375 px, and expect no violations.
 

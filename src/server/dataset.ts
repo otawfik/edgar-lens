@@ -1,7 +1,7 @@
 /**
  * In-memory query layer over data/snapshot.json. Built once per server process
- * (~100 companies, ~40k figures), with per-company memoisation of what the
- * screener asks for on every request: latest ratios and sector ranks.
+ * (~100 companies, ~40k figures), with per-company memoisation of what is
+ * asked for repeatedly: revision cells and logs, latest ratios, sector ranks.
  *
  * Every read takes an optional `asOf` date. Without it, figures are the latest
  * reported; with it, they are what had been filed on or before that date.
