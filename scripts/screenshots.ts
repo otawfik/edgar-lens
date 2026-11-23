@@ -31,7 +31,14 @@ const SHOTS: Shot[] = [
     width: 1440,
     height: 900,
     fullPage: true,
-    ready: (p) => p.getByRole("grid", { name: "Revision league table" }).waitFor(),
+    ready: (p) => p.getByRole("table", { name: "Most-revised companies" }).waitFor(),
+  },
+  {
+    name: "screener",
+    url: "/screener?item=revenue&period=annual",
+    width: 1440,
+    height: 900,
+    ready: (p) => p.getByRole("table", { name: "Companies by share of reported figures later changed" }).getByRole("row").nth(1).waitFor(),
   },
   {
     name: "rewind",

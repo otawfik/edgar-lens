@@ -5,9 +5,10 @@ test.describe("home", () => {
     await page.goto("/");
     await expect(page.getByRole("heading", { level: 1 })).toContainText("Rewind any company");
     await expect(page.getByText("Reported figures", { exact: true })).toBeVisible();
-    await expect(page.getByRole("grid", { name: "Revision league table" })).toBeVisible();
-    // The league table is sorted by rate; its first ticker is a link to the company page.
-    const first = page.getByRole("grid", { name: "Revision league table" }).getByRole("row").nth(1).getByRole("link").first();
+    const league = page.getByRole("table", { name: "Most-revised companies" });
+    await expect(league).toBeVisible();
+    // Sorted by rate; the first ticker is a link to the company page.
+    const first = league.getByRole("row").nth(1).getByRole("link").first();
     const ticker = (await first.textContent())!.trim();
     await first.click();
     await expect(page).toHaveURL(new RegExp(`/company/${ticker}`));
@@ -86,18 +87,54 @@ test.describe("company rewind", () => {
   });
 });
 
-test.describe("screener", () => {
-  test("filters by sector and preset, synced to the URL", async ({ page }) => {
+test.describe("revision screener", () => {
+  const table = "Companies by share of reported figures later changed";
+
+  test("narrows by line item, period and sector, synced to the URL", async ({ page }) => {
     await page.goto("/screener");
     const count = page.getByTestId("shown-count");
-    await expect(count).not.toHaveText(/^0/);
+    await expect(count).not.toHaveText(/^0 /);
     const before = Number((await count.textContent())!.split("/")[0]);
+    const pooled = await page.getByTestId("pooled-rate").textContent();
+
+    await page.getByLabel("Line item").selectOption({ label: "Revenue" });
+    await expect(page).toHaveURL(/item=revenue/);
+    await page.getByRole("button", { name: "Fiscal years" }).click();
+    await expect(page).toHaveURL(/period=annual/);
+    await expect(page.getByTestId("pooled-rate")).not.toHaveText(pooled!);
+
     await page.getByRole("button", { name: /^Energy · \d+$/ }).click();
     await expect(page).toHaveURL(/sector=Energy/);
     const after = Number((await count.textContent())!.split("/")[0]);
+    expect(after).toBeGreaterThan(0);
     expect(after).toBeLessThan(before);
-    await page.getByRole("button", { name: "Compounders" }).click();
-    await expect(page).toHaveURL(/revenueGrowth=0\.1\.\./);
+    await expect(page.getByRole("table", { name: table }).getByRole("row")).toHaveCount(after + 1);
+  });
+
+  test("sorts either way from the column header and opens a shared link as it was left", async ({ page }) => {
+    await page.goto("/screener?item=revenue&period=annual&lag=after1y");
+    await expect(page.getByLabel("Line item")).toHaveValue("revenue");
+    await expect(page.getByRole("button", { name: "Over a year later", pressed: true })).toBeVisible();
+    const rows = page.getByRole("table", { name: table }).getByRole("row");
+    const rates = async () => (await rows.locator("td[data-col=rate]").allTextContents()).map((t) => Number.parseFloat(t));
+    await expect(rows.locator("td[data-col=rate]").first()).toBeVisible();
+    const desc = await rates();
+    expect(desc).toEqual([...desc].sort((a, b) => b - a));
+    expect(desc[0]).toBeGreaterThan(0);
+
+    await page.getByRole("columnheader", { name: "Rate" }).getByRole("button").click();
+    await expect(page).toHaveURL(/sort=rate/);
+    await expect(page.getByRole("columnheader", { name: "Rate" })).toHaveAttribute("aria-sort", "ascending");
+    const asc = await rates();
+    expect(asc).toEqual([...asc].sort((a, b) => a - b));
+    expect(asc[0]).toBe(0);
+  });
+
+  test("home links into the screener for a line item", async ({ page }) => {
+    await page.goto("/");
+    await page.getByRole("table", { name: "Revision rate by line item" }).getByRole("link").first().click();
+    await expect(page).toHaveURL(/\/screener\?item=\w+/);
+    await expect(page.getByLabel("Line item")).not.toHaveValue("");
   });
 });
 
