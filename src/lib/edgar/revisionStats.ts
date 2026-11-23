@@ -6,6 +6,7 @@
  */
 import { METRICS, METRIC_IDS, type MetricId } from "./concepts";
 import { daysBetween, isLikelySplit, isMaterialChange } from "./pointInTime";
+import type { RevisionCell } from "./revisionScreen";
 import type {
   MetricLeagueRow,
   PeriodType,
@@ -75,6 +76,28 @@ export function countFigures(c: SnapshotCompany, metric?: MetricId): number {
     }
   }
   return n;
+}
+
+/** Non-empty cells of one company, in METRIC_IDS order, annual before quarterly. */
+export function companyCells(c: SnapshotCompany): RevisionCell[] {
+  const lags = new Map<string, number[]>();
+  for (const r of companyRevisions(c)) {
+    if (r.nth !== 1) continue;
+    const key = `${r.metric}:${r.period}`;
+    const list = lags.get(key);
+    if (list) list.push(r.lagDays);
+    else lags.set(key, [r.lagDays]);
+  }
+  const cells: RevisionCell[] = [];
+  for (const metric of METRIC_IDS) {
+    for (const period of ["annual", "quarterly"] as const) {
+      // Derived quarters are not reported figures and never count.
+      const figures = (c[period][metric] ?? []).filter(([, , derived]) => !derived).length;
+      if (!figures) continue;
+      cells.push({ metric, period, figures, lagDays: (lags.get(`${metric}:${period}`) ?? []).sort((a, b) => a - b) });
+    }
+  }
+  return cells;
 }
 
 function median(values: number[]): number | null {

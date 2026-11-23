@@ -10,7 +10,8 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { METRICS, type MetricId } from "@/lib/edgar/concepts";
 import { changeBetween, daysBetween, isLikelySplit, isMaterialChange } from "@/lib/edgar/pointInTime";
-import { companyRevisions, type MaterialRevision } from "@/lib/edgar/revisionStats";
+import type { RevisionCell } from "@/lib/edgar/revisionScreen";
+import { companyCells, companyRevisions, type MaterialRevision } from "@/lib/edgar/revisionStats";
 import type { PeriodType, Snapshot, SnapshotFiling } from "@/lib/edgar/snapshot";
 import {
   buildFinancials,
@@ -128,6 +129,7 @@ export class Dataset {
   private rankCache: Map<string, RatioRank[]> | null = null;
   private changeCache = new Map<string, FilingChange>();
   private revisionCache = new Map<string, MaterialRevision[]>();
+  private cellCache = new Map<string, RevisionCell[]>();
 
   constructor(readonly snapshot: Snapshot) {
     this.companies = snapshot.companies.map(buildFinancials);
@@ -259,6 +261,16 @@ export class Dataset {
       this.revisionCache.set(fin.company.ticker, log);
     }
     return log;
+  }
+
+  /** Reported figures and first-change delays per (line item, period type). */
+  revisionCells(fin: CompanyFinancials): RevisionCell[] {
+    let cells = this.cellCache.get(fin.company.ticker);
+    if (!cells) {
+      cells = companyCells(fin.company);
+      this.cellCache.set(fin.company.ticker, cells);
+    }
+    return cells;
   }
 
   /** Rank every company against its GICS sector on each ratio's latest value. */

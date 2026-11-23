@@ -15,30 +15,9 @@ export type MetricKind =
   /** Per-share or averaged over a period; cannot be differenced from YTD. */
   | "average";
 
-export const METRIC_IDS = [
-  "revenue",
-  "costOfRevenue",
-  "grossProfit",
-  "operatingIncome",
-  "netIncome",
-  "epsDiluted",
-  "researchAndDevelopment",
-  "shareBasedComp",
-  "netInterestIncome",
-  "noninterestIncome",
-  "noninterestExpense",
-  "operatingCashFlow",
-  "capex",
-  "dividendsPaid",
-  "buybacks",
-  "totalAssets",
-  "totalLiabilities",
-  "equity",
-  "cash",
-  "longTermDebt",
-] as const;
+import { METRIC_IDS, type MetricId } from "./metricIds";
 
-export type MetricId = (typeof METRIC_IDS)[number];
+export { METRIC_IDS, type MetricId };
 
 export interface MetricDef {
   id: MetricId;

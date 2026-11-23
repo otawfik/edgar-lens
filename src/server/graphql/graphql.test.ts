@@ -1,6 +1,7 @@
 import { parse } from "graphql";
 import { describe, expect, it } from "vitest";
 import { COMPANY, DIFF, HOME, SCREENER } from "@/graphql/operations";
+import type { ScreenerQuery } from "@/graphql/types.generated";
 import { buildCompany } from "@/lib/edgar/normalize";
 import { computeRevisionStats } from "@/lib/edgar/revisionStats";
 import type { Snapshot } from "@/lib/edgar/snapshot";
@@ -149,6 +150,19 @@ describe("limits and validation", () => {
   it("rejects out-of-range page sizes", async () => {
     const { errors } = await gql(`{ companies(first: 500) { ticker } }`);
     expect(errors?.[0].extensions?.code).toBe("BAD_USER_INPUT");
+  });
+
+  it("serves the screener's cells, which add up to the league table", async () => {
+    const res = await gql<ScreenerQuery>(SCREENER);
+    expect(res.errors).toBeUndefined();
+    const cells = res.data!.companies[0].revisionCells;
+    expect(cells.find((c) => c.metric === "REVENUE" && c.period === "ANNUAL")).toEqual({ metric: "REVENUE", period: "ANNUAL", figures: 4, lagDays: [365, 366] });
+    const league = snapshot.revisions.companies[0];
+    expect(cells.reduce((n, c) => n + c.figures, 0)).toBe(league.figures);
+    expect(cells.reduce((n, c) => n + c.lagDays.length, 0)).toBe(league.revised);
+    // Every line item in a cell has a label for the screener's picker.
+    const labelled = new Set(res.data!.metricDefinitions.map((m) => m.id));
+    expect(cells.every((c) => labelled.has(c.metric))).toBe(true);
   });
 
   it("serves the home and company documents the client sends", async () => {

@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { FIXTURE_ENTRY, FIXTURE_FACTS, FIXTURE_SUBMISSIONS } from "@/test/fixtures";
 import { buildCompany } from "./normalize";
-import { companyCells, lagMatches, median, mostRevised, summarise, type RevisionCell } from "./revisionScreen";
-import { computeRevisionStats, countFigures } from "./revisionStats";
+import { lagMatches, median, mostRevised, summarise, type RevisionCell } from "./revisionScreen";
+import { companyCells, computeRevisionStats, countFigures } from "./revisionStats";
 
 const { company } = buildCompany(FIXTURE_ENTRY, 1, [FIXTURE_FACTS], [FIXTURE_SUBMISSIONS]);
 const cells = companyCells(company);

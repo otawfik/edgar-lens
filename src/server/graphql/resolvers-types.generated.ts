@@ -61,6 +61,12 @@ export type Company = {
   /** Rank within GICS sector on each applicable ratio (latest figures). */
   ranking: Array<RatioRank>;
   ratio: Array<RatioPoint>;
+  /**
+   * Reported figures per (line item, period type) with the delay of each one's
+   * first material change. Any revision rate — by line item, by period type, by
+   * delay — is a sum over these cells.
+   */
+  revisionCells: Array<RevisionCell>;
   /** How many material revisions the company has in total. */
   revisionCount: Scalars['Int']['output'];
   /** Material revisions across the company's history, newest change first. Max 200. */
@@ -469,6 +475,16 @@ export type Revision = {
   to: Scalars['Float']['output'];
 };
 
+export type RevisionCell = {
+  __typename?: 'RevisionCell';
+  /** Reported figures in the cell; derived quarters are not counted. */
+  figures: Scalars['Int']['output'];
+  /** Days from first filing to first material change, one entry per changed figure, ascending. */
+  lagDays: Array<Scalars['Int']['output']>;
+  metric: Metric;
+  period: PeriodType;
+};
+
 export type RevisionStats = {
   __typename?: 'RevisionStats';
   byForm: Array<FormCount>;
@@ -613,6 +629,7 @@ export type ResolversTypes = {
   RatioRank: ResolverTypeWrapper<RatioRank>;
   RatioValue: ResolverTypeWrapper<RatioValue>;
   Revision: ResolverTypeWrapper<Revision>;
+  RevisionCell: ResolverTypeWrapper<RevisionCell>;
   RevisionStats: ResolverTypeWrapper<RevisionStats>;
   SectorLeagueRow: ResolverTypeWrapper<SectorLeagueRow>;
   SectorSummary: ResolverTypeWrapper<SectorSummary>;
@@ -649,6 +666,7 @@ export type ResolversParentTypes = {
   RatioRank: RatioRank;
   RatioValue: RatioValue;
   Revision: Revision;
+  RevisionCell: RevisionCell;
   RevisionStats: RevisionStats;
   SectorLeagueRow: SectorLeagueRow;
   SectorSummary: SectorSummary;
@@ -682,6 +700,7 @@ export type CompanyResolvers<ContextType = GraphQLContext, ParentType extends Re
   peers?: Resolver<Array<ResolversTypes['Company']>, ParentType, ContextType, RequireFields<CompanyPeersArgs, 'limit'>>;
   ranking?: Resolver<Array<ResolversTypes['RatioRank']>, ParentType, ContextType>;
   ratio?: Resolver<Array<ResolversTypes['RatioPoint']>, ParentType, ContextType, RequireFields<CompanyRatioArgs, 'id' | 'last' | 'period'>>;
+  revisionCells?: Resolver<Array<ResolversTypes['RevisionCell']>, ParentType, ContextType>;
   revisionCount?: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
   revisions?: Resolver<Array<ResolversTypes['Revision']>, ParentType, ContextType, RequireFields<CompanyRevisionsArgs, 'first'>>;
   secUrl?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
@@ -879,6 +898,13 @@ export type RevisionResolvers<ContextType = GraphQLContext, ParentType extends R
   to?: Resolver<ResolversTypes['Float'], ParentType, ContextType>;
 };
 
+export type RevisionCellResolvers<ContextType = GraphQLContext, ParentType extends ResolversParentTypes['RevisionCell'] = ResolversParentTypes['RevisionCell']> = {
+  figures?: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
+  lagDays?: Resolver<Array<ResolversTypes['Int']>, ParentType, ContextType>;
+  metric?: Resolver<ResolversTypes['Metric'], ParentType, ContextType>;
+  period?: Resolver<ResolversTypes['PeriodType'], ParentType, ContextType>;
+};
+
 export type RevisionStatsResolvers<ContextType = GraphQLContext, ParentType extends ResolversParentTypes['RevisionStats'] = ResolversParentTypes['RevisionStats']> = {
   byForm?: Resolver<Array<ResolversTypes['FormCount']>, ParentType, ContextType>;
   companies?: Resolver<Array<ResolversTypes['CompanyLeagueRow']>, ParentType, ContextType>;
@@ -934,6 +960,7 @@ export type Resolvers<ContextType = GraphQLContext> = {
   RatioRank?: RatioRankResolvers<ContextType>;
   RatioValue?: RatioValueResolvers<ContextType>;
   Revision?: RevisionResolvers<ContextType>;
+  RevisionCell?: RevisionCellResolvers<ContextType>;
   RevisionStats?: RevisionStatsResolvers<ContextType>;
   SectorLeagueRow?: SectorLeagueRowResolvers<ContextType>;
   SectorSummary?: SectorSummaryResolvers<ContextType>;

@@ -150,6 +150,12 @@ export const typeDefs = /* GraphQL */ `
     revisions(first: Int = 50): [Revision!]!
     "How many material revisions the company has in total."
     revisionCount: Int!
+    """
+    Reported figures per (line item, period type) with the delay of each one's
+    first material change. Any revision rate — by line item, by period type, by
+    delay — is a sum over these cells.
+    """
+    revisionCells: [RevisionCell!]!
     "Rank within GICS sector on each applicable ratio (latest figures)."
     ranking: [RatioRank!]!
     "Same-sector companies closest in revenue. Max 10."
@@ -322,6 +328,15 @@ export const typeDefs = /* GraphQL */ `
     companies: [CompanyLeagueRow!]!
     metrics: [MetricLeagueRow!]!
     sectors: [SectorLeagueRow!]!
+  }
+
+  type RevisionCell {
+    metric: Metric!
+    period: PeriodType!
+    "Reported figures in the cell; derived quarters are not counted."
+    figures: Int!
+    "Days from first filing to first material change, one entry per changed figure, ascending."
+    lagDays: [Int!]!
   }
 
   type FormCount {

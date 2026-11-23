@@ -9,12 +9,11 @@
  * the league table on the home page: every cell of every company adds up to
  * the snapshot's `revised` and `figures`.
  *
- * Pure, and shared by the server (which builds the cells) and the browser
- * (which filters and ranks them).
+ * Pure and free of imports: the server builds the cells (`companyCells` in
+ * revisionStats.ts), the browser filters and ranks them with this file.
  */
-import { METRIC_IDS, type MetricId } from "./concepts";
-import { companyRevisions } from "./revisionStats";
-import type { PeriodType, SnapshotCompany } from "./snapshot";
+import type { MetricId } from "./metricIds";
+import type { PeriodType } from "./snapshot";
 
 export interface RevisionCell {
   metric: MetricId;
@@ -43,28 +42,6 @@ export interface RevisionSummary {
   /** revised ÷ figures; null when the selection holds no figures at all. */
   rate: number | null;
   medianLagDays: number | null;
-}
-
-/** Non-empty cells of one company, in METRIC_IDS order, annual before quarterly. */
-export function companyCells(c: SnapshotCompany): RevisionCell[] {
-  const lags = new Map<string, number[]>();
-  for (const r of companyRevisions(c)) {
-    if (r.nth !== 1) continue;
-    const key = `${r.metric}:${r.period}`;
-    const list = lags.get(key);
-    if (list) list.push(r.lagDays);
-    else lags.set(key, [r.lagDays]);
-  }
-  const cells: RevisionCell[] = [];
-  for (const metric of METRIC_IDS) {
-    for (const period of ["annual", "quarterly"] as const) {
-      // Derived quarters are not reported figures and never count.
-      const figures = (c[period][metric] ?? []).filter(([, , derived]) => !derived).length;
-      if (!figures) continue;
-      cells.push({ metric, period, figures, lagDays: (lags.get(`${metric}:${period}`) ?? []).sort((a, b) => a - b) });
-    }
-  }
-  return cells;
 }
 
 export function lagMatches(days: number, lag: LagFilter): boolean {
@@ -104,7 +81,7 @@ export function mostRevised(
   sel: Omit<CellSelection, "metric">,
 ): { metric: MetricId; summary: RevisionSummary } | null {
   let best: { metric: MetricId; summary: RevisionSummary } | null = null;
-  for (const metric of METRIC_IDS) {
+  for (const metric of new Set(cells.map((c) => c.metric))) {
     const summary = summarise(cells, { ...sel, metric });
     if (!summary.revised) continue;
     if (!best || summary.revised > best.summary.revised || (summary.revised === best.summary.revised && (summary.rate ?? 0) > (best.summary.rate ?? 0))) {

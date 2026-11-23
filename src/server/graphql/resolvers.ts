@@ -270,6 +270,8 @@ export const resolvers: Resolvers = {
       };
     },
     revisionCount: (fin, _, { dataset }) => dataset.revisionLog(fin).length,
+    revisionCells: (fin, _, { dataset }) =>
+      dataset.revisionCells(fin).map((c) => ({ ...c, metric: metricEnum(c.metric), period: periodEnum(c.period) })),
     revisions: (fin, { first }, { dataset }) =>
       dataset.revisionLog(fin).slice(0, size("first", first, 50, 200)).map((r) => revisionFromLog(fin.company, r)),
     ranking: (fin, _, { dataset }) => dataset.ranking(fin).map((r) => ({ ...r, ratio: ratioEnum(r.ratio) })),
