@@ -10,12 +10,16 @@ A figure in a 10-K is not final. The next year's 10-K can carry a different valu
 
 - **Date scrubber.** One stop per filing date. Move it and every chart and table re-renders with what had been filed on or before that date. The date lives in the URL (`/company/GE?asOf=2019-06-30`), so a view can be linked.
 - **What changed.** Pick two dates; every figure whose value differs between them is listed with its old value, new value and a link to the EDGAR filing that changed it (`?asOf=2020-06-30&vs=2019-06-30`).
-- **Revisions league table.** The home page ranks all 102 companies by the share of their reported figures that a later filing changed, with revision rates by sector and line item and the delay before a change arrives.
-- **Screener.** Filter the same companies by sector and latest-year ratios.
+- **Revision statistics.** The home page shows how often reported figures are later changed across all 102 companies: by line item, by sector, by the delay before the change arrives, and the ten companies that revise most.
+- **Revision screener.** "Which reported numbers held?" Pick a line item, fiscal years or quarters, and how long after the first filing a change still counts; every company is ranked by the share of those figures a later filing changed, sortable either way (`/screener?item=revenue&period=annual&lag=after1y`). Each company is cut into (line item, period type) cells and every selection is a sum over cells, so the screener's totals reconcile with the home page's; a test checks that.
 
 | What changed between two dates | Home: who revises most |
 |---|---|
 | ![Diff panel listing nine material revisions with links to the filings](docs/screenshots/diff.png) | ![Home page with the revisions league table](docs/screenshots/home.png) |
+
+| Revision screener: revenue, fiscal years |
+|---|
+| ![Companies ranked by the share of annual revenue figures a later filing changed](docs/screenshots/screener.png) |
 
 | Dark mode | Phone (375 px) |
 |---|---|
@@ -79,9 +83,17 @@ Everything here is measured from the committed snapshot or from a local run. Not
 
 This is a single client on the same machine as the server. It says nothing about network latency or concurrent load.
 
-**JavaScript downloaded on a cold first load**, same script, from the production build: 524 kB gzip for `/` and `/screener`, 546 kB for `/company/GE` (1.7 MB decoded). That includes the route chunks Next prefetches for the nav links. It is heavy, and nearly all of it is MUI with its data grid and charts.
+**JavaScript downloaded on a cold first load**, `npm run measure`, from the production build (gzip as transferred, with the route chunks Next prefetches for the nav links):
 
-**Tests:** 79 unit tests (Vitest) and 9 end-to-end tests (Playwright, against the production build).
+| Route | Before | Now | Decoded now |
+|---|---|---|---|
+| `/` | 524 kB | 290 kB | 897 kB |
+| `/screener` | 524 kB | 290 kB | 897 kB |
+| `/company/GE` | 546 kB | 414 kB | 1,295 kB |
+
+"Before" is commit `0d61550`, measured with the same script on the same machine. What changed: the data grid is gone (two tables of about a hundred rows are plain tables with their own sort), the home page's four-bar chart is CSS, the charting library loads in its own chunk on the company page only, the watchlist drawer loads when first opened, and text inputs no longer pull in MUI's menu and modal. Of the 290 kB, about 115 kB is React and the Next runtime; `SCRIPTS=1 npm run measure` lists every script. The company page is still the heaviest because of the charts (96 kB).
+
+**Tests:** 93 unit tests (Vitest) and 21 end-to-end tests (Playwright, against the production build). Nine of the end-to-end tests run axe-core's WCAG 2 A/AA rules over the home, company and screener pages in light mode, dark mode and at 375 px, and expect no violations.
 
 ## Architecture
 
@@ -109,7 +121,7 @@ SEC EDGAR (data.sec.gov)                        build time, offline afterwards
   Redux Toolkit slices                 rewind (asOf, vs, period), screener, watchlist
         │  two-way URL sync
         ▼
-  MUI components                       scrubber, as-of table and charts, diff, league table
+  MUI components                       scrubber, as-of table and charts, diff, revision screener
 ```
 
 Types for both sides of the GraphQL boundary are generated from the schema (`npm run codegen`); CI fails if they are stale.
@@ -129,6 +141,16 @@ npm run build
 npx playwright install chromium
 npm run test:e2e       # starts the production build on :3210
 ```
+
+## Deploy
+
+It runs on Vercel's free tier as it is: import the repository, keep the Next.js preset and the default build command, and set no environment variables. Nothing at runtime calls SEC or any other service. `/` and `/screener` are prerendered; `/company/[ticker]` and `/api/graphql` are Node functions that read `data/snapshot.json` (2.2 MB), which `outputFileTracingIncludes` in `next.config.ts` copies into each function. The snapshot is parsed once per function instance, on its first request.
+
+```bash
+npx vercel            # a preview deployment; add --prod only when you mean it
+```
+
+Any Node host works the same way with `npm run build && npm start`, as long as `data/snapshot.json` sits in the working directory.
 
 ## Refresh the snapshot
 
@@ -152,5 +174,7 @@ The company list is in `src/lib/universe.ts`. After a refresh, the figures in th
 - **Line items are mapped from a short list of us-gaap concepts** per item. A company using an unusual or custom tag shows a gap. When a company switches concepts, the older concept only extends history backwards; two concepts filed together are never read as a restatement.
 - **The materiality threshold is a choice** (0.5% and $1M). A different threshold gives different rates.
 - **The rounding rule can, in principle, hide a restatement** that lands exactly on the old value rounded to fewer digits. None was found in the three hand checks, and the rule requires at least two significant digits.
-- **First-load JavaScript is over 500 kB gzip.** Lazy-loading the data grid and charts would cut it and has not been done.
+- **Rates on few figures are noisy.** Narrow the screener to one line item and fiscal years and a company has about 15 figures; one restated year moves its rate by seven points. The table shows the count beside every rate.
+- **First-load JavaScript is 290 kB gzip, 414 kB on a company page.** MUI and Emotion account for most of what is not React; the charts are the next thing to replace.
+- **A figure's history shows on hover.** The per-cell history in the line-item table is a tooltip, so it is not reachable from the keyboard; the same changes are listed, with links, in the diff and the revision log.
 - **Not investment advice**, and not affiliated with the SEC. The data is public domain.
