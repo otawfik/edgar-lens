@@ -8,7 +8,10 @@
  *    random filing date, Diff between two random dates), sequentially over
  *    HTTP on localhost, after a warm-up. Reports p50/p95/max per document.
  * 2. First-load JavaScript: every script a cold browser downloads to render a
- *    route, summed as transferred (gzip) and decoded bytes.
+ *    route, summed as transferred (gzip) and decoded bytes. `SCRIPTS=1` also
+ *    lists each script, largest first, to see where the bytes are.
+ *
+ * `N=0` skips the latency run.
  */
 import { performance } from "node:perf_hooks";
 import { chromium } from "@playwright/test";
@@ -84,14 +87,17 @@ async function firstLoad() {
     const page = await context.newPage();
     const cdp = await context.newCDPSession(page);
     await cdp.send("Network.enable");
-    const scripts = new Set<string>();
+    const scripts = new Map<string, { url: string; bytes: number }>();
     let transferred = 0;
     let decoded = 0;
     cdp.on("Network.responseReceived", (e) => {
-      if (e.type === "Script") scripts.add(e.requestId);
+      if (e.type === "Script") scripts.set(e.requestId, { url: e.response.url, bytes: 0 });
     });
     cdp.on("Network.loadingFinished", (e) => {
-      if (scripts.has(e.requestId)) transferred += e.encodedDataLength;
+      const script = scripts.get(e.requestId);
+      if (!script) return;
+      script.bytes = e.encodedDataLength;
+      transferred += e.encodedDataLength;
     });
     cdp.on("Network.dataReceived", (e) => {
       if (scripts.has(e.requestId)) decoded += e.dataLength;
@@ -100,13 +106,18 @@ async function firstLoad() {
     console.log(
       `${route.padEnd(12)} ${scripts.size} scripts  ${(transferred / 1024).toFixed(0)} kB transferred (gzip)  ${(decoded / 1024).toFixed(0)} kB decoded`,
     );
+    if (process.env.SCRIPTS) {
+      for (const sc of [...scripts.values()].sort((a, b) => b.bytes - a.bytes)) {
+        console.log(`  ${(sc.bytes / 1024).toFixed(1).padStart(6)} kB  ${sc.url.replace(BASE, "")}`);
+      }
+    }
     await context.close();
   }
   await browser.close();
 }
 
 async function main() {
-  await latency();
+  if (N > 0) await latency();
   await firstLoad();
 }
 
