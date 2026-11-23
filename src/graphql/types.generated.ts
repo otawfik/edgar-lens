@@ -34,23 +34,6 @@ export type PeriodType =
   | 'ANNUAL'
   | 'QUARTERLY';
 
-export type Ratio =
-  | 'CAPITAL_RETURN'
-  | 'CASH_CONVERSION'
-  | 'DEBT_TO_EQUITY'
-  | 'EFFICIENCY_RATIO'
-  | 'EPS_GROWTH'
-  | 'FCF_MARGIN'
-  | 'GROSS_MARGIN'
-  | 'NET_MARGIN'
-  | 'OPERATING_MARGIN'
-  | 'RD_INTENSITY'
-  | 'REVENUE_CAGR_3Y'
-  | 'REVENUE_GROWTH'
-  | 'ROA'
-  | 'ROE'
-  | 'SBC_TO_REVENUE';
-
 export type FilingFieldsFragment = { accession: string, form: string, filed: string, period: string, url: string, indexUrl: string };
 
 export type RevisionFieldsFragment = { metric: Metric, label: string, period: PeriodType, end: string, periodLabel: string, from: number, to: number, change: number | null, lagDays: number, material: boolean, likelySplit: boolean, derived: boolean, firstReported: { accession: string, form: string, filed: string, period: string, url: string, indexUrl: string }, revisedIn: { accession: string, form: string, filed: string, period: string, url: string, indexUrl: string } };
@@ -89,4 +72,4 @@ export type DiffQuery = { company: { ticker: string, diff: { from: string, to: s
 export type ScreenerQueryVariables = Exact<{ [key: string]: never; }>;
 
 
-export type ScreenerQuery = { dataset: { generatedAt: string, companies: number, figures: number, filings: number, latestFiled: string }, companies: Array<{ ticker: string, name: string, sector: string, model: BusinessModel, latestFiscalYear: number | null, latestPeriodEnd: string | null, keyStats: { revenue: number | null, netIncome: number | null, freeCashFlow: number | null, ratios: Array<{ ratio: Ratio, value: number | null }> }, changes: { lagging: boolean, filing: { form: string, filed: string } | null } }> };
+export type ScreenerQuery = { dataset: { companies: number, figures: number, latestFiled: string }, metricDefinitions: Array<{ id: Metric, label: string }>, companies: Array<{ ticker: string, name: string, sector: string, revisionCells: Array<{ metric: Metric, period: PeriodType, figures: number, lagDays: Array<number> }> }> };

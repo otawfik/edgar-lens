@@ -1,95 +1,152 @@
 import { createSelector } from "@reduxjs/toolkit";
 import type { ScreenerQuery } from "@/graphql/types.generated";
+import type { MetricId } from "@/lib/edgar/metricIds";
+import { lagMatches, median, mostRevised, summarise, type CellSelection, type RevisionCell } from "@/lib/edgar/revisionScreen";
 import { fromEnum } from "@/lib/enums";
-import { RATIO_IDS, type RatioId } from "@/lib/finance/ratios";
 import type { Sector } from "@/lib/universe";
 import { api } from "./api";
 import type { ScreenerState } from "./screenerSlice";
 import type { RootState } from "./store";
 
-/** One flat, grid-ready row per company. */
-export type ScreenerRow = {
+export interface ScreenerCompany {
   ticker: string;
   name: string;
   sector: Sector;
-  model: "GENERAL" | "BANK" | "INSURER";
-  fiscalYear: number | null;
-  revenue: number | null;
-  netIncome: number | null;
-  freeCashFlow: number | null;
-  latestForm: string | null;
-  latestFiled: string | null;
-  lagging: boolean;
-} & Record<RatioId, number | null>;
+  cells: RevisionCell[];
+}
 
-export function toRows(data: ScreenerQuery | undefined): ScreenerRow[] {
+/** One row per company for the current selection of line item, period type and delay. */
+export interface ScreenerRow {
+  ticker: string;
+  name: string;
+  sector: Sector;
+  figures: number;
+  revised: number;
+  rate: number | null;
+  medianLagDays: number | null;
+  /** Delay of every counted change, for pooled medians. */
+  lags: number[];
+  /** The line item this company changed most, when all line items are selected. */
+  top: { metric: MetricId; revised: number; figures: number } | null;
+}
+
+export function toCompanies(data: ScreenerQuery | undefined): ScreenerCompany[] {
   if (!data) return [];
-  return data.companies.map((c) => {
-    const ratios = Object.fromEntries(RATIO_IDS.map((id) => [id, null])) as Record<RatioId, number | null>;
-    for (const r of c.keyStats.ratios) ratios[fromEnum(r.ratio) as RatioId] = r.value;
+  return data.companies.map((c) => ({
+    ticker: c.ticker,
+    name: c.name,
+    sector: c.sector as Sector,
+    cells: c.revisionCells.map((cell) => ({
+      metric: fromEnum(cell.metric) as MetricId,
+      period: cell.period === "ANNUAL" ? "annual" : "quarterly",
+      figures: cell.figures,
+      lagDays: cell.lagDays,
+    })),
+  }));
+}
+
+export function toRows(companies: ScreenerCompany[], sel: CellSelection): ScreenerRow[] {
+  return companies.map((c) => {
+    const s = summarise(c.cells, sel);
+    const lags: number[] = [];
+    for (const cell of c.cells) {
+      if (sel.metric && cell.metric !== sel.metric) continue;
+      if (sel.period && cell.period !== sel.period) continue;
+      for (const d of cell.lagDays) if (lagMatches(d, sel.lag)) lags.push(d);
+    }
+    const top = sel.metric ? null : mostRevised(c.cells, sel);
     return {
       ticker: c.ticker,
       name: c.name,
-      sector: c.sector as Sector,
-      model: c.model,
-      fiscalYear: c.latestFiscalYear,
-      revenue: c.keyStats.revenue,
-      netIncome: c.keyStats.netIncome,
-      freeCashFlow: c.keyStats.freeCashFlow,
-      latestForm: c.changes.filing?.form ?? null,
-      latestFiled: c.changes.filing?.filed ?? null,
-      lagging: c.changes.lagging,
-      ...ratios,
+      sector: c.sector,
+      ...s,
+      lags,
+      top: top ? { metric: top.metric, revised: top.summary.revised, figures: top.summary.figures } : null,
     };
   });
 }
 
 /**
- * The screener's filter logic, pure so it is unit-tested directly. A bound on
- * a ratio excludes companies where that ratio is null (not meaningful or not
- * reported) — "operating margin ≥ 20%" should not include banks by accident.
+ * Which companies are listed. A company that reports none of the selected
+ * figures (a bank has no gross profit) is left out rather than shown at 0%:
+ * nothing reported is not the same as nothing revised.
  */
 export function applyScreenerFilters(
   rows: ScreenerRow[],
-  f: Pick<ScreenerState, "sectors" | "search" | "bounds" | "watchlistOnly">,
+  f: Pick<ScreenerState, "sectors" | "search" | "watchlistOnly">,
   watchlist: string[],
 ): ScreenerRow[] {
   const q = f.search.trim().toLowerCase();
   const watched = new Set(watchlist);
-  const bounds = Object.entries(f.bounds) as [RatioId, { min?: number; max?: number }][];
   return rows.filter((r) => {
+    if (r.figures === 0) return false;
     if (f.sectors.length && !f.sectors.includes(r.sector)) return false;
     if (f.watchlistOnly && !watched.has(r.ticker)) return false;
     if (q && !r.ticker.toLowerCase().includes(q) && !r.name.toLowerCase().includes(q)) return false;
-    for (const [id, b] of bounds) {
-      const v = r[id];
-      if (v === null) return false;
-      if (b.min !== undefined && v < b.min) return false;
-      if (b.max !== undefined && v > b.max) return false;
-    }
     return true;
+  });
+}
+
+/**
+ * Sort for the table. Nulls go last in both directions. Equal rates are
+ * ordered by how much evidence is behind them — 0 of 60 figures revised ranks
+ * as cleaner than 0 of 6 — then by ticker, so the order is stable.
+ */
+export function sortRows(rows: ScreenerRow[], sort: ScreenerState["sort"]): ScreenerRow[] {
+  const sign = sort.direction === "asc" ? 1 : -1;
+  const key = sort.field;
+  return [...rows].sort((a, b) => {
+    const x = a[key];
+    const y = b[key];
+    if (x === null || y === null) {
+      if (x !== y) return x === null ? 1 : -1;
+    } else if (x !== y) {
+      return (typeof x === "string" ? x.localeCompare(y as string) : x - (y as number)) * sign;
+    }
+    return b.figures - a.figures || a.ticker.localeCompare(b.ticker);
   });
 }
 
 const selectScreenerResult = api.endpoints.screener.select();
 
 export const selectScreenerData = (state: RootState) => selectScreenerResult(state).data;
-
-export const selectAllRows = createSelector([selectScreenerData], toRows);
-
 export const selectScreener = (state: RootState) => state.screener;
 export const selectWatchlist = (state: RootState) => state.watchlist.tickers;
 
-export const selectFilteredRows = createSelector(
+export const selectCompanies = createSelector([selectScreenerData], toCompanies);
+
+/** Line items present in the snapshot, in statement order, with their labels. */
+export const selectMetricOptions = createSelector([selectScreenerData, selectCompanies], (data, companies) => {
+  const present = new Set(companies.flatMap((c) => c.cells.map((cell) => cell.metric)));
+  return (data?.metricDefinitions ?? [])
+    .map((m) => ({ id: fromEnum(m.id) as MetricId, label: m.label }))
+    .filter((m) => present.has(m.id));
+});
+
+const selectSelection = createSelector(
+  [(s: RootState) => s.screener.metric, (s: RootState) => s.screener.period, (s: RootState) => s.screener.lag],
+  (metric, period, lag): CellSelection => ({ metric, period, lag }),
+);
+
+export const selectAllRows = createSelector([selectCompanies, selectSelection], toRows);
+
+const selectFiltered = createSelector(
   [selectAllRows, selectScreener, selectWatchlist],
   (rows, screener, watchlist) => applyScreenerFilters(rows, screener, watchlist),
 );
 
+export const selectFilteredRows = createSelector(
+  [selectFiltered, (s: RootState) => s.screener.sort],
+  sortRows,
+);
+
 export const selectActiveFilterCount = createSelector([selectScreener], (s) => {
   return (
+    (s.metric ? 1 : 0) +
+    (s.period ? 1 : 0) +
+    (s.lag !== "any" ? 1 : 0) +
     (s.sectors.length ? 1 : 0) +
     (s.search.trim() ? 1 : 0) +
-    Object.keys(s.bounds).length +
     (s.watchlistOnly ? 1 : 0)
   );
 });
@@ -106,13 +163,18 @@ export const selectSectorCounts = createSelector(
   },
 );
 
-/** Median of each ratio across the rows currently on screen. */
-export const selectFilteredMedians = createSelector([selectFilteredRows], (rows) => {
-  const out = {} as Record<RatioId, number | null>;
-  for (const id of RATIO_IDS) {
-    const vals = rows.map((r) => r[id]).filter((v): v is number => v !== null).sort((a, b) => a - b);
-    const mid = vals.length >> 1;
-    out[id] = vals.length ? (vals.length % 2 ? vals[mid] : (vals[mid - 1] + vals[mid]) / 2) : null;
-  }
-  return out;
-});
+/** Pooled totals for the companies listed: every figure counts once, not every company. */
+export function totals(rows: ScreenerRow[]) {
+  const figures = rows.reduce((n, r) => n + r.figures, 0);
+  const revised = rows.reduce((n, r) => n + r.revised, 0);
+  return {
+    companies: rows.length,
+    untouched: rows.filter((r) => r.revised === 0).length,
+    figures,
+    revised,
+    rate: figures ? revised / figures : null,
+    medianLagDays: median(rows.flatMap((r) => r.lags)),
+  };
+}
+
+export const selectTotals = createSelector([selectFiltered], totals);

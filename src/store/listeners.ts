@@ -20,12 +20,13 @@ function mirror(matches: (pathname: string) => boolean, query: string) {
 
 startListening({
   matcher: isAnyOf(
+    screener.setMetric,
+    screener.setPeriod,
+    screener.setLag,
     screener.toggleSector,
-    screener.setSectors,
     screener.setSearch,
-    screener.setBound,
-    screener.applyPreset,
     screener.setWatchlistOnly,
+    screener.sortBy,
     screener.setSort,
     screener.resetFilters,
   ),

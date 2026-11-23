@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import rewind, { hydrateRewind, initialRewindState, resetRewind, setAsOf, setCompareFrom, setPeriod } from "./rewindSlice";
-import screener, { applyPreset, initialScreenerState, resetFilters, setBound, setSort, toggleSector } from "./screenerSlice";
-import { applyScreenerFilters, type ScreenerRow } from "./selectors";
+import type { RevisionCell } from "@/lib/edgar/revisionScreen";
+import screener, { initialScreenerState, resetFilters, setLag, setMetric, sortBy, toggleSector } from "./screenerSlice";
+import { applyScreenerFilters, sortRows, toRows, totals, type ScreenerCompany } from "./selectors";
 import { parseRewind, parseScreener, serializeRewind, serializeScreener } from "./urlState";
 import watchlist, { hydrateWatchlist, toggleWatch } from "./watchlistSlice";
 
@@ -52,64 +53,89 @@ describe("rewind URL state", () => {
 });
 
 describe("screener slice and URL", () => {
-  it("toggles sectors and normalises bounds", () => {
+  it("toggles sectors and resets without losing the sort", () => {
     let s = screener(initialScreenerState, toggleSector("Energy"));
     s = screener(s, toggleSector("Utilities"));
     s = screener(s, toggleSector("Energy"));
     expect(s.sectors).toEqual(["Utilities"]);
-    s = screener(s, setBound({ ratio: "operatingMargin", bound: { min: 0.4, max: 0.2 } }));
-    expect(s.bounds.operatingMargin).toEqual({ min: 0.2, max: 0.4 }); // swapped
-    s = screener(s, setBound({ ratio: "operatingMargin", bound: { min: Number.NaN } }));
-    expect(s.bounds.operatingMargin).toBeUndefined();
+    s = screener(s, setMetric("revenue"));
+    s = screener(s, setLag("after1y"));
+    s = screener(s, sortBy("figures"));
+    s = screener(s, resetFilters());
+    expect(s).toEqual({ ...initialScreenerState, sort: { field: "figures", direction: "desc" } });
   });
 
-  it("applies a preset and resets without losing the sort", () => {
-    let s = screener(initialScreenerState, setSort({ field: "roe", direction: "asc" }));
-    s = screener(s, applyPreset("compounders"));
-    expect(s.bounds).toEqual({ revenueGrowth: { min: 0.1 }, operatingMargin: { min: 0.2 } });
-    s = screener(s, resetFilters());
-    expect(s.bounds).toEqual({});
-    expect(s.sort).toEqual({ field: "roe", direction: "asc" });
+  it("flips the sorted column and starts a new one where it is useful", () => {
+    let s = screener(initialScreenerState, sortBy("rate"));
+    expect(s.sort).toEqual({ field: "rate", direction: "asc" }); // was desc: now the cleanest first
+    s = screener(s, sortBy("ticker"));
+    expect(s.sort).toEqual({ field: "ticker", direction: "asc" });
+    s = screener(s, sortBy("medianLagDays"));
+    expect(s.sort).toEqual({ field: "medianLagDays", direction: "desc" });
   });
 
   it("round-trips through the URL and rejects junk", () => {
     const s = {
       ...initialScreenerState,
+      metric: "revenue" as const,
+      period: "annual" as const,
+      lag: "after1y" as const,
       sectors: ["Energy" as const, "Utilities" as const],
       search: "exx",
-      bounds: { operatingMargin: { min: 0.2 }, debtToEquity: { max: 0.5 } },
       watchlistOnly: true,
-      sort: { field: "roe" as const, direction: "asc" as const },
+      sort: { field: "revised" as const, direction: "asc" as const },
     };
+    expect(serializeScreener(s)).toBe("item=revenue&period=annual&lag=after1y&sector=Energy%2CUtilities&q=exx&watch=1&sort=revised");
     expect(parseScreener(serializeScreener(s))).toEqual(s);
-    const junk = parseScreener("sector=Crypto&operatingMargin=abc..&sort=-bogus&q=" + "x".repeat(200));
-    expect(junk.sectors).toEqual([]);
-    expect(junk.bounds).toEqual({});
-    expect(junk.sort).toEqual(initialScreenerState.sort);
-    expect(junk.search).toHaveLength(80);
+    expect(serializeScreener(initialScreenerState)).toBe("");
+    const junk = parseScreener("item=goodwill&period=monthly&lag=never&sector=Crypto&sort=-bogus&q=" + "x".repeat(200));
+    expect(junk).toEqual({ ...initialScreenerState, search: "x".repeat(80) });
   });
 });
 
-describe("applyScreenerFilters", () => {
-  const row = (over: Partial<ScreenerRow>): ScreenerRow =>
-    ({
-      ticker: "X", name: "X Corp", sector: "Energy", model: "GENERAL", fiscalYear: 2025, revenue: 1, netIncome: 1,
-      freeCashFlow: 1, latestForm: "10-K", latestFiled: "2026-01-01", lagging: false,
-      revenueGrowth: 0.1, revenueCagr3y: 0.1, epsGrowth: 0.1, grossMargin: 0.5, operatingMargin: 0.3, netMargin: 0.2,
-      fcfMargin: 0.2, roe: 0.2, roa: 0.1, debtToEquity: 0.5, cashConversion: 1.1, rdIntensity: 0.1, sbcToRevenue: 0.02,
-      capitalReturn: 0.5, efficiencyRatio: null,
-      ...over,
-    }) as ScreenerRow;
-  const rows = [row({ ticker: "A", operatingMargin: 0.3 }), row({ ticker: "B", operatingMargin: 0.1, sector: "Utilities" }), row({ ticker: "C", operatingMargin: null })];
+describe("screener rows", () => {
+  const cell = (metric: RevisionCell["metric"], period: RevisionCell["period"], figures: number, lagDays: number[]): RevisionCell => ({ metric, period, figures, lagDays });
+  const companies: ScreenerCompany[] = [
+    { ticker: "A", name: "A Corp", sector: "Energy", cells: [cell("revenue", "annual", 10, [100, 400]), cell("netIncome", "annual", 10, [])] },
+    { ticker: "B", name: "B Corp", sector: "Utilities", cells: [cell("revenue", "annual", 4, []), cell("revenue", "quarterly", 30, [50])] },
+    { ticker: "C", name: "C Bank", sector: "Financials", cells: [cell("netIncome", "annual", 12, [])] },
+  ];
+  const none = { sectors: [], search: "", watchlistOnly: false };
+  const ALL = { metric: null, period: null, lag: "any" } as const;
 
-  it("excludes null ratios when a bound is set", () => {
-    const out = applyScreenerFilters(rows, { sectors: [], search: "", bounds: { operatingMargin: { min: 0.05 } }, watchlistOnly: false }, []);
-    expect(out.map((r) => r.ticker)).toEqual(["A", "B"]);
+  it("summarises the selection per company and names the most-changed line item", () => {
+    const [a, b, c] = toRows(companies, ALL);
+    expect(a).toMatchObject({ figures: 20, revised: 2, rate: 0.1, medianLagDays: 250, top: { metric: "revenue", revised: 2, figures: 10 } });
+    expect(b).toMatchObject({ figures: 34, revised: 1, top: { metric: "revenue", revised: 1, figures: 34 } });
+    expect(c).toMatchObject({ figures: 12, revised: 0, rate: 0, medianLagDays: null, top: null });
+    expect(toRows(companies, { metric: "revenue", period: "annual", lag: "after1y" })[0]).toMatchObject({ figures: 10, revised: 1, lags: [400], top: null });
   });
+
+  it("leaves out companies that report none of the selected figures", () => {
+    const revenue = toRows(companies, { metric: "revenue", period: null, lag: "any" });
+    expect(applyScreenerFilters(revenue, none, []).map((r) => r.ticker)).toEqual(["A", "B"]); // the bank reports no revenue here
+  });
+
   it("combines sector, search and watchlist filters", () => {
-    expect(applyScreenerFilters(rows, { sectors: ["Utilities"], search: "", bounds: {}, watchlistOnly: false }, []).map((r) => r.ticker)).toEqual(["B"]);
-    expect(applyScreenerFilters(rows, { sectors: [], search: "c corp", bounds: {}, watchlistOnly: false }, []).map((r) => r.ticker)).toEqual([]);
-    expect(applyScreenerFilters(rows, { sectors: [], search: "", bounds: {}, watchlistOnly: true }, ["C"]).map((r) => r.ticker)).toEqual(["C"]);
+    const rows = toRows(companies, ALL);
+    expect(applyScreenerFilters(rows, { ...none, sectors: ["Utilities"] }, []).map((r) => r.ticker)).toEqual(["B"]);
+    expect(applyScreenerFilters(rows, { ...none, search: "bank" }, []).map((r) => r.ticker)).toEqual(["C"]);
+    expect(applyScreenerFilters(rows, { ...none, watchlistOnly: true }, ["C"]).map((r) => r.ticker)).toEqual(["C"]);
+  });
+
+  it("sorts with nulls last and breaks rate ties by the number of figures behind them", () => {
+    const rows = toRows(companies, { metric: "revenue", period: "annual", lag: "any" }); // A 2/10, B 0/4, C none
+    const clean = toRows([...companies, { ticker: "D", name: "D Corp", sector: "Energy", cells: [cell("revenue", "annual", 9, [])] }], { metric: "revenue", period: "annual", lag: "any" });
+    expect(sortRows(clean, { field: "rate", direction: "asc" }).map((r) => r.ticker)).toEqual(["D", "B", "A", "C"]); // 0 of 9 before 0 of 4
+    expect(sortRows(rows, { field: "rate", direction: "desc" }).map((r) => r.ticker)).toEqual(["A", "B", "C"]);
+    expect(sortRows(rows, { field: "medianLagDays", direction: "asc" }).map((r) => r.ticker)[0]).toBe("A"); // the only one with a delay
+    expect(sortRows(rows, { field: "name", direction: "desc" }).map((r) => r.ticker)).toEqual(["C", "B", "A"]);
+  });
+
+  it("pools totals over figures, not companies", () => {
+    const t = totals(applyScreenerFilters(toRows(companies, ALL), none, []));
+    expect(t).toEqual({ companies: 3, untouched: 1, figures: 66, revised: 3, rate: 3 / 66, medianLagDays: 100 });
+    expect(totals([])).toMatchObject({ companies: 0, rate: null, medianLagDays: null });
   });
 });
 

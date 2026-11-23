@@ -1,32 +1,53 @@
 "use client";
-import { useState } from "react";
 import Alert from "@mui/material/Alert";
-import Badge from "@mui/material/Badge";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
-import Drawer from "@mui/material/Drawer";
 import Paper from "@mui/material/Paper";
 import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
-import TuneIcon from "@mui/icons-material/Tune";
+import { formatPercent } from "@/lib/format";
 import { useScreenerQuery } from "@/store/api";
 import { hydrateScreener } from "@/store/screenerSlice";
-import { selectActiveFilterCount, selectAllRows, selectFilteredRows } from "@/store/selectors";
+import { selectAllRows, selectFilteredRows, selectTotals } from "@/store/selectors";
 import { useAppDispatch, useAppSelector, useAppStore } from "@/store/store";
 import { parseScreener, serializeScreener } from "@/store/urlState";
+import { figures } from "@/theme/theme";
 import { useUrlState } from "../useUrlState";
-import { FilterPanel } from "./FilterPanel";
-import { MedianStrip } from "./MedianStrip";
-import { ScreenerGrid } from "./ScreenerGrid";
+import { FilterBar } from "./FilterBar";
+import { RevisionTable } from "./RevisionTable";
 
+function Tile({ label, value, hint, testId }: { label: string; value: string; hint?: string; testId?: string }) {
+  return (
+    <Paper sx={{ p: 1.5 }}>
+      <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>
+        {label}
+      </Typography>
+      <Typography sx={{ ...figures, fontSize: "1.4rem", fontWeight: 500, lineHeight: 1.3 }} data-testid={testId}>
+        {value}
+      </Typography>
+      {hint && (
+        <Typography variant="caption" color="text.secondary">
+          {hint}
+        </Typography>
+      )}
+    </Paper>
+  );
+}
+
+/**
+ * The revision screener: of the figures a company reported, how many did a
+ * later filing change — for any line item, annual or quarterly, and by how
+ * late the change came. All arithmetic is in src/lib/edgar/revisionScreen.ts.
+ */
 export function ScreenerView() {
   const dispatch = useAppDispatch();
   const store = useAppStore();
-  const { isLoading, error, data } = useScreenerQuery();
+  const { isLoading, error, refetch } = useScreenerQuery();
   const all = useAppSelector(selectAllRows);
   const rows = useAppSelector(selectFilteredRows);
-  const active = useAppSelector(selectActiveFilterCount);
-  const [filtersOpen, setFiltersOpen] = useState(false);
+  const t = useAppSelector(selectTotals);
+  const allLineItems = useAppSelector((s) => s.screener.metric === null);
+  const reporting = all.filter((r) => r.figures > 0).length;
 
   useUrlState(
     (search) => dispatch(hydrateScreener(parseScreener(search))),
@@ -38,51 +59,45 @@ export function ScreenerView() {
 
   return (
     <Stack spacing={2.5}>
-      <Box sx={{ display: "flex", alignItems: "flex-end", gap: 2, flexWrap: "wrap" }}>
-        <Box sx={{ flexGrow: 1 }}>
-          <Typography variant="h1">US large-cap screener</Typography>
-          <Typography color="text.secondary" sx={{ mt: 0.5, maxWidth: 760 }}>
-            {data ? `${data.dataset.companies} companies, ${data.dataset.figures.toLocaleString("en-US")} reported figures` : "Loading"}{" "}
-            normalised from SEC XBRL filings. Ratios are for each company&apos;s latest fiscal year; click a row for
-            trends, peer ranks and what changed in its latest filing.
-          </Typography>
-        </Box>
-        <Button
-          sx={{ display: { md: "none" } }}
-          variant="outlined"
-          startIcon={
-            <Badge badgeContent={active} color="primary">
-              <TuneIcon />
-            </Badge>
-          }
-          onClick={() => setFiltersOpen(true)}
-        >
-          Filters
-        </Button>
+      <Box sx={{ maxWidth: 820 }}>
+        <Typography variant="h1">Which reported numbers held?</Typography>
+        <Typography color="text.secondary" sx={{ mt: 0.5 }}>
+          Of the figures each company reported in its 10-Ks and 10-Qs, how many a later filing changed by a material
+          amount. Choose a line item, fiscal years or quarters, and how long after the first filing a change still
+          counts; sort by rate either way to see who restates most and whose numbers stood.
+        </Typography>
       </Box>
 
-      {error && <Alert severity="error">Couldn&apos;t load the screener: {"message" in error ? error.message : "unknown error"}</Alert>}
+      <Paper sx={{ p: 2 }}>
+        <FilterBar />
+      </Paper>
 
-      <MedianStrip shown={rows.length} total={all.length} />
+      {error && (
+        <Alert severity="error" action={<Button color="inherit" size="small" onClick={() => refetch()}>Retry</Button>}>
+          Couldn&apos;t load the screener: {"message" in error ? error.message : "unknown error"}
+        </Alert>
+      )}
 
-      <Box sx={{ display: "grid", gridTemplateColumns: { xs: "minmax(0,1fr)", md: "280px minmax(0,1fr)" }, gap: 2.5, alignItems: "start" }}>
-        <Paper sx={{ p: 2, display: { xs: "none", md: "block" }, position: "sticky", top: 80 }}>
-          <FilterPanel />
-        </Paper>
-        <ScreenerGrid rows={rows} loading={isLoading} />
+      <Box
+        sx={{ display: "grid", gridTemplateColumns: { xs: "repeat(2, minmax(0,1fr))", md: "repeat(5, minmax(0,1fr))" }, gap: 1.5 }}
+        aria-live="polite"
+      >
+        <Tile label="Companies" value={`${t.companies} / ${reporting}`} hint="shown / reporting these figures" testId="shown-count" />
+        <Tile label="Figures reported" value={t.figures.toLocaleString("en-US")} />
+        <Tile label="Later changed" value={formatPercent(t.rate)} hint={`${t.revised.toLocaleString("en-US")} figures`} testId="pooled-rate" />
+        <Tile label="Never changed any" value={String(t.untouched)} hint={t.untouched === 1 ? "company" : "companies"} />
+        <Tile label="Median delay" value={t.medianLagDays === null ? "—" : `${Math.round(t.medianLagDays)} days`} hint="first filing → the change" />
       </Box>
 
-      <Drawer anchor="bottom" open={filtersOpen} onClose={() => setFiltersOpen(false)}>
-        <Box sx={{ p: 2, maxHeight: "85vh", overflowY: "auto" }}>
-          <Box sx={{ display: "flex", alignItems: "center", mb: 2 }}>
-            <Typography variant="h2" sx={{ flexGrow: 1 }}>
-              Filters
-            </Typography>
-            <Button onClick={() => setFiltersOpen(false)}>Show {rows.length} companies</Button>
-          </Box>
-          <FilterPanel />
-        </Box>
-      </Drawer>
+      <RevisionTable rows={rows} loading={isLoading} allLineItems={allLineItems} />
+
+      <Typography variant="caption" color="text.secondary" sx={{ maxWidth: 820 }}>
+        A change counts when it is at least 0.5% of the figure and at least $1M (or $0.01 per share); per-share values
+        rescaled by a stock split are not counted, and neither are quarters derived from year-to-date totals. A figure
+        changed twice counts once, by its first change. Rates on a handful of figures are noisy: read the Reported
+        column with the rate. A changed figure is usually a restated comparative after a divestiture or an accounting
+        change, not an error.
+      </Typography>
     </Stack>
   );
 }

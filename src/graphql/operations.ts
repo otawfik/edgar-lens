@@ -228,34 +228,23 @@ export const DIFF = /* GraphQL */ `
 export const SCREENER = /* GraphQL */ `
   query Screener {
     dataset {
-      generatedAt
       companies
       figures
-      filings
       latestFiled
+    }
+    metricDefinitions {
+      id
+      label
     }
     companies(first: 200) {
       ticker
       name
       sector
-      model
-      latestFiscalYear
-      latestPeriodEnd
-      keyStats {
-        revenue
-        netIncome
-        freeCashFlow
-        ratios {
-          ratio
-          value
-        }
-      }
-      changes {
-        lagging
-        filing {
-          form
-          filed
-        }
+      revisionCells {
+        metric
+        period
+        figures
+        lagDays
       }
     }
   }

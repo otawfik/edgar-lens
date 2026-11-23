@@ -9,9 +9,10 @@ import ListItemButton from "@mui/material/ListItemButton";
 import ListItemText from "@mui/material/ListItemText";
 import Typography from "@mui/material/Typography";
 import CloseIcon from "@mui/icons-material/Close";
-import { formatMoney, formatPercent } from "@/lib/format";
+import { summarise } from "@/lib/edgar/revisionScreen";
+import { formatPercent } from "@/lib/format";
 import { useScreenerQuery } from "@/store/api";
-import { selectAllRows } from "@/store/selectors";
+import { selectCompanies } from "@/store/selectors";
 import { useAppDispatch, useAppSelector } from "@/store/store";
 import { removeWatch } from "@/store/watchlistSlice";
 import { figures } from "@/theme/theme";
@@ -20,8 +21,8 @@ export function WatchlistDrawer({ open, onClose }: { open: boolean; onClose: () 
   const tickers = useAppSelector((s) => s.watchlist.tickers);
   const dispatch = useAppDispatch();
   useScreenerQuery(undefined, { skip: !open });
-  const rows = useAppSelector(selectAllRows);
-  const byTicker = new Map(rows.map((r) => [r.ticker, r]));
+  const companies = useAppSelector(selectCompanies);
+  const byTicker = new Map(companies.map((c) => [c.ticker, c]));
 
   return (
     <Drawer anchor="right" open={open} onClose={onClose}>
@@ -42,6 +43,7 @@ export function WatchlistDrawer({ open, onClose }: { open: boolean; onClose: () 
           <List dense disablePadding>
             {tickers.map((t) => {
               const r = byTicker.get(t);
+              const all = r ? summarise(r.cells, { metric: null, period: null, lag: "any" }) : null;
               return (
                 <ListItem
                   key={t}
@@ -61,9 +63,9 @@ export function WatchlistDrawer({ open, onClose }: { open: boolean; onClose: () 
                         </>
                       }
                       secondary={
-                        r ? (
+                        all ? (
                           <Box component="span" sx={figures}>
-                            {formatMoney(r.revenue)} rev · {formatPercent(r.operatingMargin)} op margin
+                            {all.revised} of {all.figures} figures later changed · {formatPercent(all.rate)}
                           </Box>
                         ) : null
                       }
