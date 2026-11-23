@@ -6,9 +6,9 @@ import Chip from "@mui/material/Chip";
 import FormControl from "@mui/material/FormControl";
 import InputLabel from "@mui/material/InputLabel";
 import Link from "@mui/material/Link";
-import MenuItem from "@mui/material/MenuItem";
+import NativeSelect from "@mui/material/NativeSelect";
+import OutlinedInput from "@mui/material/OutlinedInput";
 import Paper from "@mui/material/Paper";
-import Select from "@mui/material/Select";
 import Skeleton from "@mui/material/Skeleton";
 import Stack from "@mui/material/Stack";
 import Table from "@mui/material/Table";
@@ -113,23 +113,23 @@ export function DiffPanel({ ticker, filingDates }: { ticker: string; filingDates
           </Typography>
         </Box>
         <FormControl size="small" sx={{ minWidth: 240 }}>
-          <InputLabel id="compare-from-label">Earlier date</InputLabel>
-          <Select
-            labelId="compare-from-label"
-            label="Earlier date"
+          <InputLabel htmlFor="compare-from" shrink>
+            Earlier date
+          </InputLabel>
+          <NativeSelect
             value={compareFrom ?? ""}
             onChange={(e) => dispatch(setCompareFrom(e.target.value || null))}
-            inputProps={{ "data-testid": "compare-from" }}
+            input={<OutlinedInput label="Earlier date" notched />}
+            inputProps={{ id: "compare-from" }}
+            sx={figures}
           >
-            <MenuItem value="">
-              <em>None</em>
-            </MenuItem>
+            <option value="">None</option>
             {[...options].reverse().map((d) => (
-              <MenuItem key={d} value={d} sx={figures}>
+              <option key={d} value={d}>
                 {formatDate(d)}
-              </MenuItem>
+              </option>
             ))}
-          </Select>
+          </NativeSelect>
         </FormControl>
         {earlier.length > 4 && !compareFrom && (
           <Button size="small" variant="outlined" onClick={() => dispatch(setCompareFrom(earlier[Math.max(0, earlier.length - 5)]))}>

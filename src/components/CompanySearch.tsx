@@ -2,7 +2,7 @@
 import { useRouter } from "next/navigation";
 import Autocomplete from "@mui/material/Autocomplete";
 import Box from "@mui/material/Box";
-import TextField from "@mui/material/TextField";
+import OutlinedInput from "@mui/material/OutlinedInput";
 import { useCompanyListQuery } from "@/store/api";
 
 type Option = { ticker: string; name: string; sector: string };
@@ -42,13 +42,19 @@ export function CompanySearch({ autoFocus = false, size = "small" }: { autoFocus
           </Box>
         );
       }}
+      // A bare OutlinedInput rather than TextField: TextField also bundles
+      // Select, Menu and Modal, which this input never shows.
       renderInput={(params) => (
-        <TextField
-          {...params}
+        <OutlinedInput
+          {...params.slotProps.input}
+          id={params.id}
+          disabled={params.disabled}
+          fullWidth
+          size={params.size}
           autoFocus={autoFocus}
           placeholder={size === "medium" ? "Search a company — Apple, JPM, GE…" : "Find a company"}
-          aria-label="Find a company"
-          slotProps={{ ...params.slotProps, input: { ...params.slotProps.input, sx: { bgcolor: "background.default" } } }}
+          inputProps={{ ...params.slotProps.htmlInput, "aria-label": "Find a company" }}
+          sx={{ bgcolor: "background.default" }}
         />
       )}
     />

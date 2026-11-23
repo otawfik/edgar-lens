@@ -1,4 +1,5 @@
 "use client";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
@@ -18,7 +19,9 @@ import { useAppSelector } from "@/store/store";
 import { formatDate } from "@/lib/edgar/periods";
 import { ColorModeToggle } from "./ColorModeToggle";
 import { CompanySearch } from "./CompanySearch";
-import { WatchlistDrawer } from "./WatchlistDrawer";
+
+// The drawer (and MUI's modal machinery under it) loads the first time it is opened.
+const WatchlistDrawer = dynamic(() => import("./WatchlistDrawer").then((m) => m.WatchlistDrawer), { ssr: false });
 
 const NAV = [
   { href: "/", label: "Revisions", icon: <HistoryIcon fontSize="small" /> },
@@ -45,6 +48,7 @@ export function AppShell({
 }) {
   const pathname = usePathname();
   const [watchOpen, setWatchOpen] = useState(false);
+  const [watchLoaded, setWatchLoaded] = useState(false);
   const watchCount = useAppSelector((s) => s.watchlist.tickers.length);
   const isActive = (href: string) => (href === "/" ? pathname === "/" : pathname.startsWith(href));
 
@@ -59,7 +63,7 @@ export function AppShell({
       </Box>
       <AppBar position="sticky" color="inherit" elevation={0} sx={{ borderBottom: 1, borderColor: "divider", bgcolor: "background.paper" }}>
         <Toolbar sx={{ gap: { xs: 0.5, sm: 1.5 }, minHeight: { xs: 56 } }}>
-          <Box component={Link} href="/" sx={{ display: "flex", alignItems: "center", gap: 1, textDecoration: "none", mr: { xs: 0.5, sm: 1 } }}>
+          <Box component={Link} href="/" aria-label="EDGAR Lens, home" sx={{ display: "flex", alignItems: "center", gap: 1, textDecoration: "none", mr: { xs: 0.5, sm: 1 } }}>
             <Logo />
             <Typography component="span" sx={{ fontWeight: 700, letterSpacing: "-0.01em", display: { xs: "none", sm: "inline" } }}>
               EDGAR Lens
@@ -95,7 +99,13 @@ export function AppShell({
             <CompanySearch />
           </Box>
           <Tooltip title="Watchlist">
-            <IconButton onClick={() => setWatchOpen(true)} aria-label={`Watchlist, ${watchCount} companies`}>
+            <IconButton
+              onClick={() => {
+                setWatchLoaded(true);
+                setWatchOpen(true);
+              }}
+              aria-label={`Watchlist, ${watchCount} ${watchCount === 1 ? "company" : "companies"}`}
+            >
               <Badge badgeContent={watchCount} color="secondary" max={99}>
                 <StarBorderIcon />
               </Badge>
@@ -120,7 +130,7 @@ export function AppShell({
         </Typography>
       </Box>
 
-      <WatchlistDrawer open={watchOpen} onClose={() => setWatchOpen(false)} />
+      {watchLoaded && <WatchlistDrawer open={watchOpen} onClose={() => setWatchOpen(false)} />}
     </Box>
   );
 }

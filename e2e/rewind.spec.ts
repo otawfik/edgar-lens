@@ -130,6 +130,20 @@ test.describe("revision screener", () => {
     expect(asc[0]).toBe(0);
   });
 
+  test("stars a company from the keyboard; the watchlist opens with its record and survives a reload", async ({ page }) => {
+    await page.goto("/screener?q=apple");
+    const star = page.getByRole("button", { name: "Add AAPL to watchlist" });
+    await star.focus();
+    await page.keyboard.press("Enter");
+    await expect(page.getByRole("button", { name: "Remove AAPL from watchlist" }).first()).toHaveAttribute("aria-pressed", "true");
+    await page.reload();
+    await page.getByRole("button", { name: "Watchlist, 1 company" }).click();
+    const drawer = page.getByRole("region", { name: "Watchlist" });
+    await expect(drawer.getByRole("link", { name: /AAPL/ })).toContainText(/\d+ of \d+ figures later changed/);
+    await page.keyboard.press("Escape");
+    await expect(drawer).toBeHidden();
+  });
+
   test("home links into the screener for a line item", async ({ page }) => {
     await page.goto("/");
     await page.getByRole("table", { name: "Revision rate by line item" }).getByRole("link").first().click();

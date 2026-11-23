@@ -2,10 +2,13 @@
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
 import Chip from "@mui/material/Chip";
+import FormControl from "@mui/material/FormControl";
 import FormControlLabel from "@mui/material/FormControlLabel";
+import InputLabel from "@mui/material/InputLabel";
+import NativeSelect from "@mui/material/NativeSelect";
+import OutlinedInput from "@mui/material/OutlinedInput";
 import Stack from "@mui/material/Stack";
 import Switch from "@mui/material/Switch";
-import TextField from "@mui/material/TextField";
 import ToggleButton from "@mui/material/ToggleButton";
 import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
 import Typography from "@mui/material/Typography";
@@ -50,24 +53,26 @@ export function FilterBar() {
   return (
     <Stack spacing={2} component="form" role="search" aria-label="Screener filters" onSubmit={(e) => e.preventDefault()}>
       <Box sx={{ display: "flex", flexWrap: "wrap", gap: 2, alignItems: "flex-end" }}>
-        <TextField
-          select
-          size="small"
-          label="Line item"
-          value={s.metric ?? ""}
-          onChange={(e) => dispatch(setMetric((e.target.value || null) as MetricId | null))}
-          slotProps={{ select: { native: true }, inputLabel: { shrink: true } }}
-          sx={{ minWidth: 220, flex: { xs: "1 1 100%", sm: "0 0 auto" } }}
-        >
-          <option value="">All line items</option>
-          {/* Keep a line item from the URL selectable while the list is still loading. */}
-          {s.metric && !metrics.some((m) => m.id === s.metric) && <option value={s.metric}>{s.metric}</option>}
-          {metrics.map((m) => (
-            <option key={m.id} value={m.id}>
-              {m.label}
-            </option>
-          ))}
-        </TextField>
+        <FormControl size="small" sx={{ minWidth: 220, flex: { xs: "1 1 100%", sm: "0 0 auto" } }}>
+          <InputLabel htmlFor="screener-item" shrink>
+            Line item
+          </InputLabel>
+          <NativeSelect
+            value={s.metric ?? ""}
+            onChange={(e) => dispatch(setMetric((e.target.value || null) as MetricId | null))}
+            input={<OutlinedInput label="Line item" notched />}
+            inputProps={{ id: "screener-item" }}
+          >
+            <option value="">All line items</option>
+            {/* Keep a line item from the URL selectable while the list is still loading. */}
+            {s.metric && !metrics.some((m) => m.id === s.metric) && <option value={s.metric}>{s.metric}</option>}
+            {metrics.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.label}
+              </option>
+            ))}
+          </NativeSelect>
+        </FormControl>
         <Group label="Figures">
           <ToggleButtonGroup
             size="small"
@@ -94,13 +99,10 @@ export function FilterBar() {
             <ToggleButton value="after1y" sx={toggle}>Over a year later</ToggleButton>
           </ToggleButtonGroup>
         </Group>
-        <TextField
-          size="small"
-          label="Ticker or name"
-          value={s.search}
-          onChange={(e) => dispatch(setSearch(e.target.value))}
-          sx={{ minWidth: 180, flex: { xs: "1 1 100%", sm: "0 1 220px" } }}
-        />
+        <FormControl size="small" sx={{ minWidth: 180, flex: { xs: "1 1 100%", sm: "0 1 220px" } }}>
+          <InputLabel htmlFor="screener-q">Ticker or name</InputLabel>
+          <OutlinedInput id="screener-q" label="Ticker or name" value={s.search} onChange={(e) => dispatch(setSearch(e.target.value))} />
+        </FormControl>
       </Box>
 
       <Group label="Sector">
