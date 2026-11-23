@@ -1,4 +1,5 @@
 "use client";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useState } from "react";
 import Alert from "@mui/material/Alert";
@@ -24,10 +25,21 @@ import { figures } from "@/theme/theme";
 import { DateScrubber } from "./DateScrubber";
 import { DiffPanel, RevisionTable } from "./DiffPanel";
 import { LineItemTable } from "./LineItemTable";
-import { MarginChart, MetricChart } from "./MetricChart";
 import { useRewindUrl } from "./useRewindUrl";
 
 const LAST = { annual: 10, quarterly: 12 } as const;
+
+// The charting library is the largest thing on this page and nothing above
+// the fold needs it, so it arrives in its own chunk. The placeholders are the
+// charts' rendered heights (toolbar + plot + padding), so nothing shifts.
+const MetricChart = dynamic(() => import("./MetricChart").then((m) => m.MetricChart), {
+  ssr: false,
+  loading: () => <Skeleton variant="rounded" height={374} />,
+});
+const MarginChart = dynamic(() => import("./MetricChart").then((m) => m.MarginChart), {
+  ssr: false,
+  loading: () => <Skeleton variant="rounded" height={330} />,
+});
 
 export function RewindView({ ticker }: { ticker: string }) {
   useRewindUrl();
