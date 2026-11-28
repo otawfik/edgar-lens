@@ -4,18 +4,26 @@
  *
  *   npm run measure
  *
- * 1. GraphQL latency: the three documents the UI sends (Home, Company as of a
- *    random filing date, Diff between two random dates), sequentially over
- *    HTTP on localhost, after a warm-up. Reports p50/p95/max per document.
+ * 1. GraphQL latency: the four documents the UI sends (Home, Company as of a
+ *    random filing date, Diff between two random dates, a company's
+ *    restatement timeline), sequentially over HTTP on localhost, after a
+ *    warm-up. Reports p50/p95/max per document.
  * 2. First-load JavaScript: every script a cold browser downloads to render a
  *    route, summed as transferred (gzip) and decoded bytes. `SCRIPTS=1` also
  *    lists each script, largest first, to see where the bytes are.
  *
+ * 3. Server function size: the files `next build` traced for each on-demand
+ *    route plus the Next server runtime, uncompressed, which is what a
+ *    serverless host has to fit in one function (Vercel's limit is 250 MB).
+ *    Read from .next, so it needs the build but not the running server.
+ *
  * `N=0` skips the latency run.
  */
+import { existsSync, readFileSync, statSync } from "node:fs";
+import path from "node:path";
 import { performance } from "node:perf_hooks";
 import { chromium } from "@playwright/test";
-import { COMPANY, DIFF, HOME } from "../src/graphql/operations";
+import { COMPANY, DIFF, HOME, RESTATEMENTS } from "../src/graphql/operations";
 import { loadSnapshot } from "../src/server/dataset";
 
 const BASE = process.env.BASE_URL ?? "http://localhost:3210";
@@ -43,7 +51,7 @@ function summary(name: string, samples: number[]) {
   const s = [...samples].sort((a, b) => a - b);
   const q = (p: number) => s[Math.min(s.length - 1, Math.ceil(p * s.length) - 1)];
   console.log(
-    `${name.padEnd(8)} n=${s.length}  p50 ${q(0.5).toFixed(1)} ms  p95 ${q(0.95).toFixed(1)} ms  max ${s[s.length - 1].toFixed(1)} ms`,
+    `${name.padEnd(9)} n=${s.length}  p50 ${q(0.5).toFixed(1)} ms  p95 ${q(0.95).toFixed(1)} ms  max ${s[s.length - 1].toFixed(1)} ms`,
   );
 }
 
@@ -67,16 +75,20 @@ async function latency() {
   const home: number[] = [];
   const comp: number[] = [];
   const dif: number[] = [];
+  const timeline: number[] = [];
   for (let i = 0; i < N; i++) {
     comp.push(await post(COMPANY, company()));
     dif.push(await post(DIFF, diff()));
     if (i % 5 === 0) home.push(await post(HOME, {}));
+    // One per company page opened; computed on the first request for a company, then served from memory.
+    if (i % 5 === 0) timeline.push(await post(RESTATEMENTS, { ticker: pick(companies).ticker }));
   }
   console.log(`GraphQL over HTTP on localhost, sequential, ${BASE}`);
   summary("Home", home);
   summary("Company", comp);
   summary("Diff", dif);
-  summary("All", [...home, ...comp, ...dif]);
+  summary("Timeline", timeline);
+  summary("All", [...home, ...comp, ...dif, ...timeline]);
 }
 
 async function firstLoad() {
@@ -116,9 +128,36 @@ async function firstLoad() {
   await browser.close();
 }
 
+/** Files traced into a route's function: its own trace plus the Next server's, each file counted once. */
+function functionSize() {
+  const dir = path.resolve(".next");
+  const runtime = path.join(dir, "next-server.js.nft.json");
+  if (!existsSync(runtime)) return console.log("\nServer function size: no .next build output here, skipped");
+  const traced = (nft: string) => {
+    const { files } = JSON.parse(readFileSync(nft, "utf8")) as { files: string[] };
+    return files.map((f) => path.resolve(path.dirname(nft), f));
+  };
+  console.log("\nServer function size (traced files, uncompressed)");
+  for (const route of ["app/api/graphql/route.js", "app/company/[ticker]/page.js"]) {
+    const entry = path.join(dir, "server", route);
+    const files = new Set([entry, ...traced(`${entry}.nft.json`), ...traced(runtime)]);
+    let bytes = 0;
+    let snapshot = 0;
+    for (const f of files) {
+      if (!existsSync(f) || !statSync(f).isFile()) continue;
+      bytes += statSync(f).size;
+      if (f.endsWith(path.join("data", "snapshot.json"))) snapshot = statSync(f).size;
+    }
+    console.log(
+      `${("/" + route.replace(/^app\//, "").replace(/\/(route|page)\.js$/, "")).padEnd(18)} ${files.size} files  ${(bytes / 1e6).toFixed(1)} MB  (snapshot ${(snapshot / 1e6).toFixed(1)} MB)`,
+    );
+  }
+}
+
 async function main() {
   if (N > 0) await latency();
   await firstLoad();
+  functionSize();
 }
 
 main().catch((err) => {
