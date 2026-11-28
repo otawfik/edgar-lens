@@ -1,4 +1,5 @@
 "use client";
+import { useState } from "react";
 import Alert from "@mui/material/Alert";
 import Box from "@mui/material/Box";
 import Button from "@mui/material/Button";
@@ -87,6 +88,25 @@ export function RevisionTable({ rows, showLag = true }: { rows: Revision[]; show
   );
 }
 
+/** Copies the address of the current view, which carries both dates. */
+function CopyLink() {
+  const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      setState("copied");
+    } catch {
+      setState("failed"); // no clipboard permission: the address bar has the same link
+    }
+    window.setTimeout(() => setState("idle"), 2500);
+  };
+  return (
+    <Button size="small" variant="outlined" onClick={copy} sx={{ whiteSpace: "nowrap" }}>
+      <span aria-live="polite">{state === "copied" ? "Link copied" : state === "failed" ? "Copy from the address bar" : "Copy link"}</span>
+    </Button>
+  );
+}
+
 /**
  * "What changed between two dates": pick an earlier filing date; every figure
  * whose in-force value differs between then and the as-of date is listed with
@@ -136,18 +156,19 @@ export function DiffPanel({ ticker, filingDates }: { ticker: string; filingDates
             One year back
           </Button>
         )}
+        {compareFrom && <CopyLink />}
       </Stack>
 
       {error && <Alert severity="error">Couldn&apos;t load the comparison.</Alert>}
       {compareFrom && isFetching && !diff && <Skeleton variant="rounded" height={120} />}
       {diff && (
         <Stack spacing={2}>
-          <Stack direction="row" sx={{ flexWrap: "wrap", gap: 1 }}>
+          <Stack direction="row" role="status" sx={{ flexWrap: "wrap", gap: 1 }}>
             <Chip color="secondary" label={`${diff.materialCount} material revision${diff.materialCount === 1 ? "" : "s"}`} data-testid="material-count" />
             {derivedCount > 0 && <Chip variant="outlined" label={`${derivedCount} derived`} />}
             <Chip variant="outlined" label={`${diff.revised.length - diff.materialCount - derivedCount} minor / split-adjusted`} />
             <Chip variant="outlined" label={`${diff.added.length} new figures`} />
-            <Chip variant="outlined" label={`${diff.filingsBetween.length} filings between`} />
+            <Chip variant="outlined" label={`${diff.filingsBetween.length} filing${diff.filingsBetween.length === 1 ? "" : "s"} between`} />
           </Stack>
           {diff.filingsBetween.length > 0 && (
             <Typography variant="body2" color="text.secondary" sx={{ display: "flex", flexWrap: "wrap", gap: 1.5 }}>

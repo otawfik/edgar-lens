@@ -63,6 +63,84 @@ test.describe("company rewind", () => {
     await expect(page.getByTestId("as-of-label")).not.toHaveText(/Today/);
   });
 
+  test("keyboard: a figure's history opens on focus and arrow keys move between figures", async ({ page }) => {
+    await page.goto("/company/GE?asOf=2019-06-30");
+    const table = page.getByRole("table", { name: "Financial line items by period" });
+    const first = table.getByRole("button", { name: /^Revenue, FY2011/ });
+    await expect(first).toHaveAttribute("tabindex", "0");
+    await expect(table.locator("button[tabindex='0']")).toHaveCount(1);
+    // Tab in from the scrollable region that wraps the table.
+    await page.getByRole("region", { name: "Financial line items, scrollable" }).focus();
+    await page.keyboard.press("Tab");
+    await expect(first).toBeFocused();
+    await page.keyboard.press("End");
+    const fy2018 = table.getByRole("button", { name: /^Revenue, FY2018: \$121\.6B, later changed/ });
+    await expect(fy2018).toBeFocused();
+    // The as-first-reported value, the filing that carried it, and what it is today.
+    const tip = page.getByRole("tooltip");
+    await expect(tip).toContainText("10-K · Feb 26, 2019");
+    await expect(tip).toContainText("$121.6B");
+    await expect(tip).toContainText("Today: $97.0B");
+    await page.keyboard.press("Escape");
+    await expect(tip).toBeHidden();
+    await page.keyboard.press("ArrowDown");
+    await expect(table.getByRole("button", { name: /^R&D expense, FY2018/ })).toBeFocused();
+  });
+
+  test("keyboard: the charts are one tab stop each and read out the period in focus", async ({ page }) => {
+    await page.goto("/company/GE?asOf=2019-06-30");
+    const chart = page.getByRole("group", { name: /^Revenue by fiscal year, as known on Jun 30, 2019/ });
+    const fy2018 = chart.getByRole("img", { name: /^FY2018: As known on Jun 30, 2019 \$121\.6B; As reported today \$97\.0B/ });
+    await chart.getByRole("img").first().focus();
+    await page.keyboard.press("End");
+    await expect(fy2018).toBeFocused();
+    await expect(page.getByTestId("chart-tooltip")).toContainText("FY2018");
+    await expect(page.getByTestId("chart-tooltip")).toContainText("$97.0B");
+    // Switching the metric redraws the same chart.
+    await page.getByRole("button", { name: "Net income", exact: true }).click();
+    await expect(page.getByRole("group", { name: /^Net income by fiscal year/ })).toBeVisible();
+    await expect(page.getByRole("group", { name: "Margins by fiscal year" }).getByRole("img").first()).toHaveAccessibleName(/^FY2011: Operating margin/);
+  });
+
+  test("restatement timeline opens exactly what one filing changed, as a link that can be shared", async ({ page, context }) => {
+    await page.goto("/company/GE");
+    const timeline = page.getByTestId("restatement-timeline");
+    const link = timeline.getByRole("link", { name: /^Feb 24, 2020, 10-K: \d+ figures changed$/ });
+    const counted = Number((await link.getAttribute("aria-label"))!.match(/(\d+) figures changed/)![1]);
+    await expect(link).toHaveAttribute("href", "?asOf=2020-02-24&vs=2019-10-30");
+    await link.click();
+    await expect(page).toHaveURL(/asOf=2020-02-24&vs=2019-10-30/);
+    await expect(link).toHaveAttribute("aria-current", "true");
+    await expect(page.getByTestId("as-of-label")).toHaveText("Feb 24, 2020");
+    // The diff panel lists that filing's changes: the same count, the hand-checked FY2018 revenue among them.
+    const panel = page.getByTestId("diff-panel");
+    await expect(panel.getByTestId("material-count")).toHaveText(`${counted} material revisions`);
+    await expect(panel.getByText("1 filing between")).toBeVisible();
+    const row = panel.getByRole("table", { name: "Revised figures" }).getByRole("row").filter({ hasText: "FY2018" }).filter({ hasText: "Revenue" });
+    await expect(row).toContainText("$121.6B");
+    await expect(row).toContainText("$97.0B");
+    await expect(timeline.getByTestId("restatement-selected")).toContainText(`${counted} figures changed since Oct 30, 2019`);
+
+    // Step to the next restatement from the keyboard, then back.
+    await timeline.getByRole("button", { name: "Later restatement" }).focus();
+    await page.keyboard.press("Enter");
+    await expect(page).not.toHaveURL(/asOf=2020-02-24/);
+    await expect(page).toHaveURL(/asOf=\d{4}-\d{2}-\d{2}&vs=\d{4}-\d{2}-\d{2}/);
+    await timeline.getByRole("button", { name: "Earlier restatement" }).click();
+    await expect(page).toHaveURL(/asOf=2020-02-24&vs=2019-10-30/);
+
+    // The copied link opens the same view in a fresh tab.
+    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+    await panel.getByRole("button", { name: "Copy link" }).click();
+    await expect(panel.getByRole("button", { name: "Link copied" })).toBeVisible();
+    const copied = await page.evaluate(() => navigator.clipboard.readText());
+    expect(copied).toMatch(/\/company\/GE\?asOf=2020-02-24&vs=2019-10-30$/);
+    const other = await context.newPage();
+    await other.goto(copied);
+    await expect(other.getByTestId("restatement-timeline").getByRole("link", { name: /^Feb 24, 2020/ })).toHaveAttribute("aria-current", "true");
+    await expect(other.getByTestId("diff-panel").getByTestId("material-count")).toHaveText(`${counted} material revisions`);
+  });
+
   test("diffs two dates and links each revision to its EDGAR filing", async ({ page }) => {
     await page.goto("/company/GE?asOf=2020-06-30&vs=2019-06-30");
     const panel = page.getByTestId("diff-panel");

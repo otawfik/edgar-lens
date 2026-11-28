@@ -60,6 +60,17 @@ const SHOTS: Shot[] = [
     },
   },
   {
+    name: "timeline",
+    url: "/company/GE?asOf=2020-02-24&vs=2019-10-30",
+    width: 1440,
+    height: 900,
+    ready: async (p) => {
+      await p.getByTestId("diff-panel").getByTestId("material-count").waitFor();
+      // Clear of the sticky header.
+      await p.getByTestId("restatement-timeline").evaluate((el) => window.scrollTo(0, el.getBoundingClientRect().top + window.scrollY - 80));
+    },
+  },
+  {
     name: "rewind-dark",
     url: "/company/IBM?asOf=2021-06-30",
     width: 1440,

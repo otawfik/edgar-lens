@@ -32,7 +32,8 @@ const PAGES: { name: string; url: string; ready: (page: Page) => Promise<unknown
     url: "/company/GE?asOf=2020-06-30&vs=2019-06-30",
     ready: async (p) => {
       await p.getByTestId("material-count").waitFor();
-      await p.getByRole("button", { name: "Revenue", exact: true }).waitFor(); // the chart chunk has arrived
+      await p.getByRole("group", { name: /^Revenue by fiscal year/ }).waitFor();
+      await p.getByTestId("restatement-timeline").getByRole("link").first().waitFor();
     },
   },
   {

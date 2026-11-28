@@ -32,6 +32,14 @@ const rewindSlice = createSlice({
       const d = clean(action.payload);
       state.compareFrom = d && state.asOf && d >= state.asOf ? null : d;
     },
+    /** Both dates at once: "what did the filings of `asOf` change since `compareFrom`?" */
+    setWindow(state, action: PayloadAction<{ asOf: string; compareFrom: string }>) {
+      const asOf = clean(action.payload.asOf);
+      const from = clean(action.payload.compareFrom);
+      if (!asOf) return;
+      state.asOf = asOf;
+      state.compareFrom = from && from < asOf ? from : null;
+    },
     setPeriod(state, action: PayloadAction<Period>) {
       state.period = action.payload;
     },
@@ -45,5 +53,5 @@ const rewindSlice = createSlice({
   },
 });
 
-export const { setAsOf, setCompareFrom, setPeriod, resetRewind, hydrateRewind } = rewindSlice.actions;
+export const { setAsOf, setCompareFrom, setWindow, setPeriod, resetRewind, hydrateRewind } = rewindSlice.actions;
 export default rewindSlice.reducer;

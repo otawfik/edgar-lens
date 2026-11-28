@@ -25,6 +25,7 @@ import { DateScrubber } from "./DateScrubber";
 import { DiffPanel, RevisionTable } from "./DiffPanel";
 import { LineItemTable } from "./LineItemTable";
 import { MarginChart, MetricChart } from "./MetricChart";
+import { RestatementTimeline } from "./RestatementTimeline";
 import { useRewindUrl } from "./useRewindUrl";
 
 const LAST = { annual: 10, quarterly: 12 } as const;
@@ -129,11 +130,13 @@ export function RewindView({ ticker }: { ticker: string }) {
             <MetricChart asOfData={company} latestData={latest} asOf={asOf} period={period === "quarterly" ? "quarter" : "fiscal year"} />
             <MarginChart data={company} period={period === "quarterly" ? "quarter" : "fiscal year"} />
           </Box>
-          <LineItemTable asOfData={company} latestData={latest} asOf={asOf} />
         </>
       )}
 
+      <RestatementTimeline ticker={ticker} filingDates={company.filingDates} />
       <DiffPanel ticker={ticker} filingDates={company.filingDates} />
+
+      {!empty && <LineItemTable asOfData={company} latestData={latest} asOf={asOf} />}
 
       <Paper sx={{ p: 2 }}>
         <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1, alignItems: "baseline", mb: 1 }}>

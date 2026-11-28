@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import rewind, { hydrateRewind, initialRewindState, resetRewind, setAsOf, setCompareFrom, setPeriod } from "./rewindSlice";
+import rewind, { hydrateRewind, initialRewindState, resetRewind, setAsOf, setCompareFrom, setPeriod, setWindow } from "./rewindSlice";
 import type { RevisionCell } from "@/lib/edgar/revisionScreen";
 import screener, { initialScreenerState, resetFilters, setLag, setMetric, sortBy, toggleSector } from "./screenerSlice";
 import { applyScreenerFilters, sortRows, toRows, totals, type ScreenerCompany } from "./selectors";
@@ -21,6 +21,16 @@ describe("rewind slice", () => {
     s = rewind(s, setCompareFrom("2019-06-30"));
     s = rewind(s, setAsOf("2019-01-01")); // moving the as-of date behind the baseline clears it
     expect(s.compareFrom).toBeNull();
+  });
+
+  it("sets both dates at once for a restatement, replacing whatever was open", () => {
+    let s = rewind(initialRewindState, setAsOf("2024-06-30"));
+    s = rewind(s, setCompareFrom("2023-06-30"));
+    s = rewind(s, setWindow({ asOf: "2020-02-24", compareFrom: "2019-10-30" }));
+    expect(s).toMatchObject({ asOf: "2020-02-24", compareFrom: "2019-10-30" });
+    // A baseline that is not earlier is dropped; a malformed as-of date changes nothing.
+    expect(rewind(s, setWindow({ asOf: "2020-02-24", compareFrom: "2020-02-24" })).compareFrom).toBeNull();
+    expect(rewind(s, setWindow({ asOf: "soon", compareFrom: "2019-10-30" }))).toEqual(s);
   });
 
   it("resets dates but not the period", () => {
