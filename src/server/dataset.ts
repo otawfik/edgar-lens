@@ -1,7 +1,7 @@
 /**
  * In-memory query layer over data/snapshot.json. Built once per server process
  * (~100 companies, ~40k figures), with per-company memoisation of what is
- * asked for repeatedly: revision cells and logs, latest ratios, sector ranks.
+ * asked for repeatedly: revision cells and logs, restatement events.
  *
  * Every read takes an optional `asOf` date. Without it, figures are the latest
  * reported; with it, they are what had been filed on or before that date.
@@ -27,17 +27,8 @@ import {
   type FinVintage,
   type PeriodSeries,
 } from "@/lib/finance/derive";
-import {
-  RATIO_IDS,
-  RATIOS,
-  computeRatio,
-  median,
-  rankAmong,
-  ratioApplies,
-  type RatioId,
-} from "@/lib/finance/ratios";
+import { RATIOS, computeRatio, ratioApplies, type RatioId } from "@/lib/finance/ratios";
 import { formatBps, formatChange, formatMoney } from "@/lib/format";
-import { SECTORS, type Sector } from "@/lib/universe";
 
 export interface MetricChange {
   metric: DerivedMetricId;
@@ -68,15 +59,6 @@ export interface FilingChange {
   headline: string;
 }
 
-export interface RatioRank {
-  ratio: RatioId;
-  value: number | null;
-  rank: number | null;
-  of: number;
-  percentile: number | null;
-  sectorMedian: number | null;
-}
-
 /** One figure as known on a date. */
 export interface PointView {
   metric: DerivedMetricId;
@@ -104,6 +86,19 @@ export interface RevisionView {
   derived: boolean;
 }
 
+/** A filing date on which previously reported figures were materially changed. */
+export interface RestatementEvent {
+  filed: string;
+  /** The filing date before it: the state the changes are measured against. */
+  previous: string;
+  /** Filings made on `filed` (indices into the company's filings). */
+  filings: number[];
+  /** Reported figures changed: material, not a split, not derived. */
+  count: number;
+  /** The largest relative change among them. */
+  largest: RevisionView;
+}
+
 export interface AsOfDiff {
   fin: CompanyFinancials;
   from: string;
@@ -125,11 +120,10 @@ const PERIOD_DEFINING: DerivedMetricId[] = ["revenue", "netIncome", "operatingCa
 export class Dataset {
   readonly companies: CompanyFinancials[];
   private readonly byTicker: Map<string, CompanyFinancials>;
-  private readonly ratioCache = new Map<string, Map<RatioId, number | null>>();
-  private rankCache: Map<string, RatioRank[]> | null = null;
   private changeCache = new Map<string, FilingChange>();
   private revisionCache = new Map<string, MaterialRevision[]>();
   private cellCache = new Map<string, RevisionCell[]>();
+  private restatementCache = new Map<string, RestatementEvent[]>();
 
   constructor(readonly snapshot: Snapshot) {
     this.companies = snapshot.companies.map(buildFinancials);
@@ -181,18 +175,6 @@ export class Dataset {
       if (v) out.push(v);
     }
     return out.slice(-last);
-  }
-
-  /** Latest fiscal-year ratios (as reported today), memoised per company. */
-  latestRatios(fin: CompanyFinancials): Map<RatioId, number | null> {
-    const key = fin.company.ticker;
-    let m = this.ratioCache.get(key);
-    if (!m) {
-      const end = this.latestEnd(fin);
-      m = new Map(RATIO_IDS.map((id) => [id, end ? this.ratioAt(fin, "annual", end, id) : null]));
-      this.ratioCache.set(key, m);
-    }
-    return m;
   }
 
   ratioSeries(fin: CompanyFinancials, type: PeriodType, id: RatioId, last: number, asOf?: string | null) {
@@ -263,6 +245,30 @@ export class Dataset {
     return log;
   }
 
+  /**
+   * The restatement timeline: each filing date whose filings changed figures
+   * that were already on file, oldest first. Every event is the diff between
+   * two consecutive filing dates, so opening that diff shows exactly the
+   * changes counted here, and nothing can be counted that the diff would not
+   * list. A date that only added new periods is not an event.
+   */
+  restatements(fin: CompanyFinancials): RestatementEvent[] {
+    let events = this.restatementCache.get(fin.company.ticker);
+    if (!events) {
+      events = [];
+      const dates = fin.filingDates;
+      for (let i = 1; i < dates.length; i++) {
+        const d = this.diff(fin, dates[i - 1], dates[i]);
+        // diff() sorts counted revisions first, largest relative change first.
+        const counted = d.revised.filter(countsAsRevision);
+        if (!counted.length) continue;
+        events.push({ filed: dates[i], previous: dates[i - 1], filings: d.filingsBetween, count: counted.length, largest: counted[0] });
+      }
+      this.restatementCache.set(fin.company.ticker, events);
+    }
+    return events;
+  }
+
   /** Reported figures and first-change delays per (line item, period type). */
   revisionCells(fin: CompanyFinancials): RevisionCell[] {
     let cells = this.cellCache.get(fin.company.ticker);
@@ -271,68 +277,6 @@ export class Dataset {
       this.cellCache.set(fin.company.ticker, cells);
     }
     return cells;
-  }
-
-  /** Rank every company against its GICS sector on each ratio's latest value. */
-  ranking(fin: CompanyFinancials): RatioRank[] {
-    if (!this.rankCache) {
-      this.rankCache = new Map();
-      const bySector = new Map<Sector, CompanyFinancials[]>();
-      for (const c of this.companies) {
-        const list = bySector.get(c.company.sector) ?? [];
-        list.push(c);
-        bySector.set(c.company.sector, list);
-      }
-      for (const peers of bySector.values()) {
-        const valuesByRatio = new Map<RatioId, number[]>(
-          RATIO_IDS.map((id) => [
-            id,
-            peers.map((p) => this.latestRatios(p).get(id)).filter((v): v is number => v !== null && v !== undefined),
-          ]),
-        );
-        for (const c of peers) {
-          const ranks: RatioRank[] = [];
-          for (const id of RATIO_IDS) {
-            if (!ratioApplies(id, c.company.model)) continue;
-            const values = valuesByRatio.get(id)!;
-            const value = this.latestRatios(c).get(id) ?? null;
-            const r = value === null ? null : rankAmong(value, values, RATIOS[id].better);
-            ranks.push({ ratio: id, value, rank: r?.rank ?? null, of: values.length, percentile: r?.percentile ?? null, sectorMedian: median(values) });
-          }
-          this.rankCache.set(c.company.ticker, ranks);
-        }
-      }
-    }
-    return this.rankCache.get(fin.company.ticker) ?? [];
-  }
-
-  /** Same-sector companies closest in size (log revenue). */
-  peers(fin: CompanyFinancials, limit: number): CompanyFinancials[] {
-    const size = (c: CompanyFinancials) => {
-      const rev = this.metricAt(c, "annual", this.latestEnd(c), "revenue");
-      return rev && rev > 0 ? Math.log(rev) : null;
-    };
-    const mine = size(fin);
-    return this.companies
-      .filter((c) => c !== fin && c.company.sector === fin.company.sector)
-      .map((c) => ({ c, d: mine === null ? 0 : Math.abs((size(c) ?? Infinity) - mine) }))
-      .sort((a, b) => a.d - b.d || a.c.company.ticker.localeCompare(b.c.company.ticker))
-      .slice(0, limit)
-      .map((x) => x.c);
-  }
-
-  sectorSummaries() {
-    return SECTORS.map((sector) => {
-      const members = this.companies.filter((c) => c.company.sector === sector);
-      return {
-        sector,
-        companies: members.length,
-        medians: RATIO_IDS.map((id) => ({
-          ratio: id,
-          value: median(members.map((c) => this.latestRatios(c).get(id)).filter((v): v is number => v !== null && v !== undefined)),
-        })),
-      };
-    });
   }
 
   /**

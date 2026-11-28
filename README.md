@@ -10,12 +10,17 @@ A figure in a 10-K is not final. The next year's 10-K can carry a different valu
 
 - **Date scrubber.** One stop per filing date. Move it and every chart and table re-renders with what had been filed on or before that date. The date lives in the URL (`/company/GE?asOf=2019-06-30`), so a view can be linked.
 - **What changed.** Pick two dates; every figure whose value differs between them is listed with its old value, new value and a link to the EDGAR filing that changed it (`?asOf=2020-06-30&vs=2019-06-30`).
+- **Restatement timeline.** Every filing date on which a company changed figures it had already reported, on a calendar axis; a bar's height is the number of figures that filing changed. Each bar is a link: selecting it sets the as-of date to that filing and the comparison to the filing date before it, so the panel below lists exactly what that one filing changed (`/company/GE?asOf=2020-02-24&vs=2019-10-30` is GE's FY2019 10-K restating FY2018 revenue from $121.6B to $97.0B). The count on a bar is, by construction, the count in the diff it opens; a test checks that, and that the bars add up to the company's revision log.
 - **Revision statistics.** The home page shows how often reported figures are later changed across all 102 companies: by line item, by sector, by the delay before the change arrives, and the ten companies that revise most.
 - **Revision screener.** "Which reported numbers held?" Pick a line item, fiscal years or quarters, and how long after the first filing a change still counts; every company is ranked by the share of those figures a later filing changed, sortable either way (`/screener?item=revenue&period=annual&lag=after1y`). Each company is cut into (line item, period type) cells and every selection is a sum over cells, so the screener's totals reconcile with the home page's; a test checks that.
 
 | What changed between two dates | Home: who revises most |
 |---|---|
 | ![Diff panel listing nine material revisions with links to the filings](docs/screenshots/diff.png) | ![Home page with the revisions league table](docs/screenshots/home.png) |
+
+| Restatement timeline: one filing selected, and what it changed |
+|---|
+| ![GE's restatement timeline with the February 2020 10-K selected and its six material revisions listed below](docs/screenshots/timeline.png) |
 
 | Revision screener: revenue, fiscal years |
 |---|
@@ -72,28 +77,31 @@ Everything here is measured from the committed snapshot or from a local run. Not
 | Highest revision rate | GE, 108 of 392 figures (27.6%) |
 | By sector | Industrials 7.3% highest, Materials 1.1% lowest |
 
-**GraphQL latency**, `npm run measure`: the three documents the UI sends, 1,100 sequential requests over HTTP to `next start` on localhost with random companies and dates, after a 50-request warm-up. Apple M3, Node 22.18.
+**GraphQL latency**, `npm run measure`: the four documents the UI sends, 1,200 sequential requests over HTTP to `next start` on localhost with random companies and dates, after a 50-request warm-up. Apple M3 (8 cores), Node 22.18.
 
 | Document | p50 | p95 | max |
 |---|---|---|---|
-| Home | 3.9 ms | 8.0 ms | 13.2 ms |
-| Company as of a date | 6.6 ms | 13.1 ms | 52.2 ms |
-| Diff between two dates | 4.8 ms | 11.1 ms | 52.4 ms |
-| All | 5.5 ms | 11.2 ms | 52.4 ms |
+| Home | 3.9 ms | 12.0 ms | 56.4 ms |
+| Company as of a date | 11.0 ms | 21.2 ms | 66.4 ms |
+| Diff between two dates | 7.2 ms | 17.9 ms | 122.0 ms |
+| Restatement timeline | 3.3 ms | 7.5 ms | 29.2 ms |
+| All | 7.6 ms | 19.6 ms | 122.0 ms |
 
-This is a single client on the same machine as the server. It says nothing about network latency or concurrent load.
+This is a single client on the same machine as the server, and the machine was busy with unrelated work during the run (load average about 15), so the figures are slower than an idle run would give. It says nothing about network latency or concurrent load.
 
 **JavaScript downloaded on a cold first load**, `npm run measure`, from the production build (gzip as transferred, with the route chunks Next prefetches for the nav links):
 
-| Route | Before | Now | Decoded now |
-|---|---|---|---|
-| `/` | 524 kB | 290 kB | 897 kB |
-| `/screener` | 524 kB | 290 kB | 897 kB |
-| `/company/GE` | 546 kB | 414 kB | 1,295 kB |
+| Route | First version | After the first pass | Now | Decoded now |
+|---|---|---|---|---|
+| `/` | 524 kB | 290 kB | 288 kB | 897 kB |
+| `/screener` | 524 kB | 290 kB | 288 kB | 897 kB |
+| `/company/GE` | 546 kB | 414 kB | 312 kB | 969 kB |
 
-"Before" is commit `0d61550`, measured with the same script on the same machine. What changed: the data grid is gone (a table of about a hundred rows is a plain table with its own sort), the home page's four-bar chart is CSS, the charting library loads in its own chunk on the company page only, the watchlist drawer loads when first opened, and text inputs no longer pull in MUI's menu and modal. Of the 290 kB, about 115 kB is React and the Next runtime; `SCRIPTS=1 npm run measure` lists every script. The company page is still the heaviest because of the charts (96 kB).
+"First version" is commit `0d61550` and "after the first pass" is commit `3337504`, each measured with the same script on the same machine. The first pass removed the data grid (a table of about a hundred rows is a plain table with its own sort), made the home page's four-bar chart CSS, loaded the watchlist drawer when first opened, and stopped text inputs pulling in MUI's menu and modal. The second replaced the charting library (96 kB) with about 300 lines of SVG in [`src/components/charts`](src/components/charts): the company page lost 102 kB while gaining the restatement timeline. `SCRIPTS=1 npm run measure` lists every script.
 
-**Tests:** 93 unit tests (Vitest) and 21 end-to-end tests (Playwright, against the production build). Nine of the end-to-end tests run axe-core's WCAG 2 A/AA rules over the home, company and screener pages in light mode, dark mode and at 375 px, and expect no violations.
+**Server function size**, `npm run measure`, from the files `next build` traces for each on-demand route together with the Next server runtime, uncompressed: 45.1 MB for `/api/graphql` and 45.3 MB for `/company/[ticker]`, each including the 2.2 MB snapshot.
+
+**Tests:** 120 unit tests (Vitest) and 24 end-to-end tests (Playwright, against the production build). Nine of the end-to-end tests run axe-core's WCAG 2 A/AA rules over the home, company and screener pages in light mode, dark mode and at 375 px, and expect no violations; three more drive the charts, the line-item table and the restatement timeline from the keyboard.
 
 ## Architecture
 
@@ -121,7 +129,7 @@ SEC EDGAR (data.sec.gov)                        build time, offline afterwards
   Redux Toolkit slices                 rewind (asOf, vs, period), screener, watchlist
         │  two-way URL sync
         ▼
-  MUI components                       scrubber, as-of table and charts, diff, revision screener
+  MUI components                       scrubber, as-of table, SVG charts, restatement timeline, diff, revision screener
 ```
 
 Types for both sides of the GraphQL boundary are generated from the schema (`npm run codegen`); CI fails if they are stale.
@@ -144,7 +152,7 @@ npm run test:e2e       # starts the production build on :3210
 
 ## Deploy
 
-It runs on Vercel's free tier as it is: import the repository, keep the Next.js preset and the default build command, and set no environment variables. Nothing at runtime calls SEC or any other service. `/` and `/screener` are prerendered; `/company/[ticker]` and `/api/graphql` are Node functions that read `data/snapshot.json` (2.2 MB), which `outputFileTracingIncludes` in `next.config.ts` copies into each function. The snapshot is parsed once per function instance, on its first request.
+It is not deployed anywhere yet. It is built to run on Vercel's free (Hobby) plan without changes: import the repository, keep the Next.js preset and the default build command, and set no environment variables. Nothing at runtime calls SEC or any other service, and there is no database. `/` and `/screener` are prerendered; `/company/[ticker]` and `/api/graphql` are Node functions that read `data/snapshot.json` (2.2 MB), which `outputFileTracingIncludes` in `next.config.ts` copies into each function. The files traced for each function come to about 45 MB uncompressed (measured above), against Vercel's limit of 250 MB per function. The snapshot is parsed once per function instance, on its first request, so the first request after a cold start is slower than the latency table suggests; that has not been measured on Vercel.
 
 ```bash
 npx vercel            # a preview deployment; add --prod only when you mean it
@@ -175,6 +183,7 @@ The company list is in `src/lib/universe.ts`. After a refresh, the figures in th
 - **The materiality threshold is a choice** (0.5% and $1M). A different threshold gives different rates.
 - **The rounding rule can, in principle, hide a restatement** that lands exactly on the old value rounded to fewer digits. None was found in the three hand checks, and the rule requires at least two significant digits.
 - **Rates on few figures are noisy.** Narrow the screener to one line item and fiscal years and a company has about 15 figures; one restated year moves its rate by seven points. The table shows the count beside every rate.
-- **First-load JavaScript is 290 kB gzip, 414 kB on a company page.** MUI and Emotion account for most of what is not React; the charts are the next thing to replace.
-- **A figure's history shows on hover.** The per-cell history in the line-item table is a tooltip, so it is not reachable from the keyboard; the same changes are listed, with links, in the diff and the revision log.
+- **First-load JavaScript is 288 kB gzip, 312 kB on a company page.** Beyond React and the Next runtime, most of it is MUI and Emotion.
+- **The restatement timeline counts figures, not dollars.** A bar's height is how many reported figures a filing changed. It does not weigh a 20% cut to revenue above a 1% change to capital expenditure; the largest change is named when a bar is selected. Two filings on the same day are one bar.
+- **The charts are read by keyboard one period at a time.** Each period is exposed as an image named with its values, reached with the arrow keys from a single tab stop. There is no separate data table for the charts; the line-item table below carries the same figures.
 - **Not investment advice**, and not affiliated with the SEC. The data is public domain.

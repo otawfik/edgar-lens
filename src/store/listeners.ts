@@ -34,7 +34,7 @@ startListening({
 });
 
 startListening({
-  matcher: isAnyOf(rewind.setAsOf, rewind.setCompareFrom, rewind.setPeriod, rewind.resetRewind),
+  matcher: isAnyOf(rewind.setAsOf, rewind.setCompareFrom, rewind.setWindow, rewind.setPeriod, rewind.resetRewind),
   effect: (_action, api) => mirror((p) => p.startsWith("/company/"), serializeRewind(api.getState().rewind)),
 });
 

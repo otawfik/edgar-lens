@@ -63,14 +63,12 @@ export const HOME = /* GraphQL */ `
         label
         changes
       }
-      companies {
+      companies(first: 10) {
         ticker
         name
-        sector
         figures
         revised
         rate
-        medianLagDays
         largest {
           label
           periodLabel
@@ -85,13 +83,10 @@ export const HOME = /* GraphQL */ `
         figures
         revised
         rate
-        medianLagDays
       }
       sectors {
         sector
         companies
-        figures
-        revised
         rate
       }
     }
@@ -219,6 +214,30 @@ export const DIFF = /* GraphQL */ `
         }
         filingsBetween {
           ...FilingFields
+        }
+      }
+    }
+  }
+`;
+
+export const RESTATEMENTS = /* GraphQL */ `
+  query Restatements($ticker: String!) {
+    company(ticker: $ticker) {
+      ticker
+      restatements {
+        filed
+        previous
+        count
+        filings {
+          form
+        }
+        largest {
+          metric
+          label
+          periodLabel
+          from
+          to
+          change
         }
       }
     }

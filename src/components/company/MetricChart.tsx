@@ -5,15 +5,14 @@ import Paper from "@mui/material/Paper";
 import ToggleButton from "@mui/material/ToggleButton";
 import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
 import Typography from "@mui/material/Typography";
-import { useColorScheme } from "@mui/material/styles";
-import { BarChart } from "@mui/x-charts/BarChart";
-import { LineChart } from "@mui/x-charts/LineChart";
 import type { CompanyQuery, Metric } from "@/graphql/types.generated";
 import { formatDate } from "@/lib/edgar/periods";
 import { formatEps, formatMoney, formatPercent } from "@/lib/format";
-import { SERIES } from "@/theme/theme";
+import { CategoryChart } from "../charts/CategoryChart";
 
 type Company = NonNullable<CompanyQuery["company"]>;
+/** How the x axis is described to a screen reader. */
+type PeriodName = "fiscal year" | "quarter";
 
 const CHOICES: { metric: Metric; label: string }[] = [
   { metric: "REVENUE", label: "Revenue" },
@@ -24,18 +23,12 @@ const CHOICES: { metric: Metric; label: string }[] = [
   { metric: "EPS_DILUTED", label: "Diluted EPS" },
 ];
 
-function useSeriesColors() {
-  const { mode, systemMode } = useColorScheme();
-  return (mode === "system" ? systemMode : mode) === "dark" ? SERIES.dark : SERIES.light;
-}
-
 /**
  * One metric, two vintages: bars for the values known on the as-of date and,
  * when rewound, a second series for what the same periods say today — the gap
  * between them is the restatement.
  */
-export function MetricChart({ asOfData, latestData, asOf }: { asOfData: Company; latestData: Company | undefined; asOf: string | null }) {
-  const colors = useSeriesColors();
+export function MetricChart({ asOfData, latestData, asOf, period }: { asOfData: Company; latestData: Company | undefined; asOf: string | null; period: PeriodName }) {
   const available = CHOICES.filter((c) => asOfData.lineItems.some((li) => li.metric === c.metric && li.points.length));
   const [metric, setMetric] = useState<Metric>("REVENUE");
   const chosen = available.find((c) => c.metric === metric) ?? available[0];
@@ -76,27 +69,17 @@ export function MetricChart({ asOfData, latestData, asOf }: { asOfData: Company;
           ))}
         </ToggleButtonGroup>
       </Box>
-      <BarChart
+      <CategoryChart
+        kind="bar"
+        title={`${chosen.label} by ${period}${asOf ? `, as known on ${formatDate(asOf)} and as reported today` : ""}`}
         height={300}
-        colors={[colors[0], colors[1]]}
-        xAxis={[{ scaleType: "band", data: labels, tickLabelStyle: { fontSize: 11 } }]}
-        yAxis={[{ valueFormatter: (v: number) => fmt(v), width: 64, tickLabelStyle: { fontSize: 11 } }]}
+        labels={labels}
+        format={fmt}
+        showLegend={!!asOf}
         series={[
-          {
-            id: "asOf",
-            label: asOf ? `As known on ${formatDate(asOf)}` : "As reported",
-            data: asOfPoints.map((p) => p.value),
-            valueFormatter: (v) => fmt(v),
-          },
-          ...(nowSeries
-            ? [{ id: "now", label: "As reported today", data: nowSeries, valueFormatter: (v: number | null) => fmt(v) }]
-            : []),
+          { id: "asOf", label: asOf ? `As known on ${formatDate(asOf)}` : "As reported", values: asOfPoints.map((p) => p.value) },
+          ...(nowSeries ? [{ id: "now", label: "As reported today", values: nowSeries }] : []),
         ]}
-        grid={{ horizontal: true }}
-        borderRadius={3}
-        hideLegend={!asOf}
-        slotProps={{ legend: { position: { vertical: "bottom", horizontal: "center" } } }}
-        margin={{ left: 0, right: 8, top: 8, bottom: 0 }}
       />
     </Paper>
   );
@@ -109,8 +92,7 @@ const RATIO_SERIES: { key: "operatingMargin" | "netMargin" | "fcfMargin" | "effi
   { key: "efficiencyRatio", label: "Efficiency ratio" },
 ];
 
-export function MarginChart({ data }: { data: Company }) {
-  const colors = useSeriesColors();
+export function MarginChart({ data, period }: { data: Company; period: PeriodName }) {
   const series = RATIO_SERIES.filter((r) => data[r.key].some((p) => p.value !== null));
   if (!series.length) return null;
   const labels = data[series[0].key].map((p) => p.label);
@@ -119,24 +101,14 @@ export function MarginChart({ data }: { data: Company }) {
       <Typography variant="h3" sx={{ mb: 1 }}>
         Margins
       </Typography>
-      <LineChart
+      <CategoryChart
+        kind="line"
+        title={`Margins by ${period}`}
         height={260}
-        colors={series.map((_, i) => colors[i % colors.length])}
-        xAxis={[{ scaleType: "point", data: labels, tickLabelStyle: { fontSize: 11 } }]}
-        yAxis={[{ valueFormatter: (v: number) => formatPercent(v, 0), width: 52, tickLabelStyle: { fontSize: 11 } }]}
-        series={series.map((r) => ({
-          id: r.key,
-          label: r.label,
-          data: data[r.key].map((p) => p.value),
-          valueFormatter: (v) => formatPercent(v),
-          showMark: false,
-          curve: "linear",
-          connectNulls: false,
-        }))}
-        grid={{ horizontal: true }}
-        slotProps={{ legend: { position: { vertical: "bottom", horizontal: "center" } } }}
-        margin={{ left: 0, right: 24, top: 8, bottom: 0 }}
-        sx={{ "& .MuiLineElement-root": { strokeWidth: 2 } }}
+        labels={labels}
+        format={(v) => formatPercent(v)}
+        axisFormat={(v) => formatPercent(v, 0)}
+        series={series.map((r) => ({ id: r.key, label: r.label, values: data[r.key].map((p) => p.value) }))}
       />
     </Paper>
   );

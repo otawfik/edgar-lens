@@ -1,7 +1,7 @@
 import { parse } from "graphql";
 import { describe, expect, it } from "vitest";
-import { COMPANY, DIFF, HOME, SCREENER } from "@/graphql/operations";
-import type { ScreenerQuery } from "@/graphql/types.generated";
+import { COMPANY, DIFF, HOME, RESTATEMENTS, SCREENER } from "@/graphql/operations";
+import type { RestatementsQuery, ScreenerQuery } from "@/graphql/types.generated";
 import { buildCompany } from "@/lib/edgar/normalize";
 import { computeRevisionStats } from "@/lib/edgar/revisionStats";
 import type { Snapshot } from "@/lib/edgar/snapshot";
@@ -44,7 +44,7 @@ describe("enum naming", () => {
 
 describe("client operations", () => {
   it("are valid against the schema and within the limits", () => {
-    for (const doc of [HOME, COMPANY, DIFF, SCREENER]) {
+    for (const doc of [HOME, COMPANY, DIFF, RESTATEMENTS, SCREENER]) {
       const ast = parse(doc);
       for (const d of Object.values(operationDepths(ast))) expect(d).toBeLessThanOrEqual(MAX_DEPTH);
       expect(estimateCost(schema, ast, { ticker: "FIX", period: "ANNUAL", last: 12, from: "2023-01-01", to: "2025-01-01" })).toBeLessThanOrEqual(MAX_COST);
@@ -133,15 +133,57 @@ describe("diff between two dates", () => {
   });
 });
 
+describe("restatement timeline", () => {
+  type Events = NonNullable<RestatementsQuery["company"]>["restatements"];
+
+  it("lists the filing dates that changed figures already on file, oldest first", async () => {
+    const { data, errors } = await gql<RestatementsQuery>(RESTATEMENTS, { ticker: "FIX" });
+    expect(errors).toBeUndefined();
+    const events: Events = data!.company!.restatements;
+    // The FY2023 10-K restates FY2022 revenue; the FY2024 10-K restates FY2023 revenue.
+    expect(events.map((e) => [e.previous, e.filed, e.count, e.filings.map((f) => f.form)])).toEqual([
+      ["2023-11-01", "2024-02-15", 1, ["10-K"]],
+      ["2024-02-15", "2025-02-15", 1, ["10-K"]],
+    ]);
+    expect(events[0].largest).toMatchObject({ label: "Revenue", periodLabel: "FY2022", from: 1000 * M, to: 1050 * M });
+    expect(events[0].largest.change).toBeCloseTo(0.05);
+    expect(events[1].largest).toMatchObject({ label: "Revenue", periodLabel: "FY2023", from: 1200 * M, to: 1180 * M });
+  });
+
+  it("counts what the diff between the two dates lists, so the split and the derived quarter stay out", async () => {
+    const { data } = await gql<RestatementsQuery>(RESTATEMENTS, { ticker: "FIX" });
+    for (const e of data!.company!.restatements) {
+      const d = await gql<{ company: { diff: { materialCount: number; revised: { material: boolean; likelySplit: boolean; derived: boolean }[] } } }>(
+        /* GraphQL */ `query ($from: String!, $to: String!) { company(ticker: "FIX") { diff(from: $from, to: $to) { materialCount revised { material likelySplit derived } } } }`,
+        { from: e.previous, to: e.filed },
+      );
+      expect(d.data!.company.diff.materialCount).toBe(e.count);
+    }
+    // The FY2023 10-K also halved EPS for a split and moved a derived quarter: listed in the diff, not counted.
+    const first = dataset.diff(dataset.company("FIX")!, "2023-11-01", "2024-02-15");
+    expect(first.revised.some((r) => r.likelySplit)).toBe(true);
+    expect(first.revised.some((r) => r.derived)).toBe(true);
+    expect(first.revised.length).toBeGreaterThan(1);
+  });
+
+  it("adds up to the company's revision log and skips dates that only added periods", () => {
+    const fin = dataset.company("FIX")!;
+    const events = dataset.restatements(fin);
+    expect(events.reduce((n, e) => n + e.count, 0)).toBe(dataset.revisionLog(fin).length);
+    expect(events.map((e) => e.filed)).not.toContain("2023-05-01");
+    expect(dataset.restatements(fin)).toBe(events); // memoised per company
+  });
+});
+
 describe("limits and validation", () => {
   it("rejects over-deep queries", async () => {
-    const deep = `{ company(ticker:"FIX"){ peers{ peers{ peers{ peers{ peers{ peers{ peers{ peers { ticker } } } } } } } } } }`;
+    const deep = `{ company(ticker:"FIX"){ changes{ company{ changes{ company{ changes{ company{ changes{ company { ticker } } } } } } } } } }`;
     const { errors } = await gql(deep);
     expect(errors?.[0].extensions?.code).toBe("QUERY_TOO_DEEP");
   });
 
   it("rejects over-costly queries before executing them", async () => {
-    const costly = `{ companies(first: 200) { peers(limit: 10) { peers(limit: 10) { series(metric: REVENUE, last: 40) { value } } } } }`;
+    const costly = `{ companies(first: 200) { lineItems(last: 40) { points { history { value } } } } }`;
     const { errors } = await gql(costly);
     expect(errors?.[0].extensions?.code).toBe("QUERY_TOO_COSTLY");
     expect(estimateCost(schema, parse(costly))).toBeGreaterThan(MAX_COST);
@@ -163,6 +205,29 @@ describe("limits and validation", () => {
     // Every line item in a cell has a label for the screener's picker.
     const labelled = new Set(res.data!.metricDefinitions.map((m) => m.id));
     expect(cells.every((c) => labelled.has(c.metric))).toBe(true);
+  });
+
+  it("pages the league table: ten rows unless asked, and never more than 200", async () => {
+    const many = new Dataset({
+      ...snapshot,
+      revisions: { ...snapshot.revisions, companies: Array.from({ length: 25 }, (_, i) => ({ ...snapshot.revisions.companies[0], ticker: `T${i}` })) },
+    });
+    const server = createGraphQLServer(() => many);
+    const ask = async (query: string) => {
+      const res = await server.fetch("http://test/api/graphql", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ query }) });
+      return (await res.json()) as { data?: { revisionStats: { companies: { ticker: string }[] } }; errors?: { extensions?: { code?: string } }[] };
+    };
+    expect((await ask(HOME)).data!.revisionStats.companies.map((c) => c.ticker)).toEqual(Array.from({ length: 10 }, (_, i) => `T${i}`));
+    expect((await ask(`{ revisionStats { companies { ticker } } }`)).data!.revisionStats.companies).toHaveLength(10);
+    expect((await ask(`{ revisionStats { companies(first: 25) { ticker } } }`)).data!.revisionStats.companies).toHaveLength(25);
+    expect((await ask(`{ revisionStats { companies(first: 201) { ticker } } }`)).errors?.[0].extensions?.code).toBe("BAD_USER_INPUT");
+  });
+
+  it("no longer exposes the ratio-screening fields the interface stopped using", async () => {
+    for (const q of [`{ sectors { sector } }`, `{ company(ticker: "FIX") { keyStats { revenue } } }`, `{ company(ticker: "FIX") { ranking { rank } } }`, `{ company(ticker: "FIX") { peers { ticker } } }`, `{ companies(filter: { ratioBounds: [] }) { ticker } }`]) {
+      const { errors } = await gql(q);
+      expect(errors?.[0].extensions?.code).toBe("GRAPHQL_VALIDATION_FAILED");
+    }
   });
 
   it("serves the home and company documents the client sends", async () => {

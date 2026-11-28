@@ -11,8 +11,6 @@ export const typeDefs = /* GraphQL */ `
     dataset: Dataset!
     "Snapshot-wide revision statistics and league tables, computed at build time."
     revisionStats: RevisionStats!
-    "GICS sectors with company counts and median latest-fiscal-year ratios."
-    sectors: [SectorSummary!]!
     "Companies in the coverage universe, optionally filtered. Max 200."
     companies(filter: CompanyFilter, first: Int = 200): [Company!]!
     "One company by ticker (case-insensitive)."
@@ -43,14 +41,6 @@ export const typeDefs = /* GraphQL */ `
     "Matches ticker or name, case-insensitive."
     search: String
     tickers: [String!]
-    "Every bound must hold on the latest fiscal year (null ratios fail a bound)."
-    ratioBounds: [RatioBound!]
-  }
-
-  input RatioBound {
-    ratio: Ratio!
-    min: Float
-    max: Float
   }
 
   enum BusinessModel {
@@ -137,8 +127,6 @@ export const typeDefs = /* GraphQL */ `
     latestPeriodEnd: String
     "Distinct dates on which this company filed a 10-K/10-Q in the snapshot, ascending."
     filingDates: [String!]!
-    "Latest fiscal-year figures, for screening."
-    keyStats: KeyStats!
     "One metric's series. With asOf, values are what had been filed on or before that date."
     series(metric: Metric!, period: PeriodType = ANNUAL, last: Int = 11, asOf: String): [DataPoint!]!
     "Every metric's series at once, for a statement view. Max last 40."
@@ -156,30 +144,15 @@ export const typeDefs = /* GraphQL */ `
     delay — is a sum over these cells.
     """
     revisionCells: [RevisionCell!]!
-    "Rank within GICS sector on each applicable ratio (latest figures)."
-    ranking: [RatioRank!]!
-    "Same-sector companies closest in revenue. Max 10."
-    peers(limit: Int = 5): [Company!]!
+    """
+    Every filing date on which previously reported figures were materially
+    changed, oldest first: the company's restatement timeline.
+    """
+    restatements: [Restatement!]!
     "What the latest filing changed versus a year earlier."
     changes: FilingChange!
     "Most recent 10-K/10-Q filings."
     filings(first: Int = 8): [Filing!]!
-  }
-
-  type KeyStats {
-    fiscalYear: Int
-    periodEnd: String
-    revenue: Float
-    netIncome: Float
-    operatingCashFlow: Float
-    freeCashFlow: Float
-    totalAssets: Float
-    ratios: [RatioValue!]!
-  }
-
-  type RatioValue {
-    ratio: Ratio!
-    value: Float
   }
 
   type Vintage {
@@ -220,16 +193,6 @@ export const typeDefs = /* GraphQL */ `
     label: String!
     fiscalYear: Int!
     value: Float
-  }
-
-  type RatioRank {
-    ratio: Ratio!
-    value: Float
-    rank: Int
-    of: Int!
-    "Share of sector peers this company beats (0–1)."
-    percentile: Float
-    sectorMedian: Float
   }
 
   type Filing {
@@ -283,6 +246,19 @@ export const typeDefs = /* GraphQL */ `
     revisedIn: Filing!
   }
 
+  type Restatement {
+    "The filing date on which the figures changed."
+    filed: String!
+    "The filing date before it. diff(from: previous, to: filed) lists exactly these changes."
+    previous: String!
+    "The 10-K/10-Q filings made on that date."
+    filings: [Filing!]!
+    "Reported figures materially changed on that date; equals that diff's materialCount."
+    count: Int!
+    "The largest relative change among them."
+    largest: Revision!
+  }
+
   type AsOfDiff {
     from: String!
     to: String!
@@ -310,12 +286,6 @@ export const typeDefs = /* GraphQL */ `
     ratios: [RatioChange!]!
   }
 
-  type SectorSummary {
-    sector: String!
-    companies: Int!
-    medians: [RatioValue!]!
-  }
-
   type RevisionStats {
     figures: Int!
     revised: Int!
@@ -324,8 +294,8 @@ export const typeDefs = /* GraphQL */ `
     medianLagDays: Float
     byForm: [FormCount!]!
     lagBuckets: [LagBucket!]!
-    "Every company, highest revision rate first."
-    companies: [CompanyLeagueRow!]!
+    "Companies by revision rate, highest first. Max 200."
+    companies(first: Int = 10): [CompanyLeagueRow!]!
     metrics: [MetricLeagueRow!]!
     sectors: [SectorLeagueRow!]!
   }

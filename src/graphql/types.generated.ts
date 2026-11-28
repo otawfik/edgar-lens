@@ -41,7 +41,7 @@ export type RevisionFieldsFragment = { metric: Metric, label: string, period: Pe
 export type HomeQueryVariables = Exact<{ [key: string]: never; }>;
 
 
-export type HomeQuery = { dataset: { generatedAt: string, companies: number, figures: number, vintages: number, filings: number, earliestFiled: string, latestFiled: string }, revisionStats: { figures: number, revised: number, rate: number, revisedTwice: number, medianLagDays: number | null, byForm: Array<{ form: string, changes: number }>, lagBuckets: Array<{ label: string, changes: number }>, companies: Array<{ ticker: string, name: string, sector: string, figures: number, revised: number, rate: number, medianLagDays: number | null, largest: { label: string, periodLabel: string, from: number, to: number, change: number | null } | null }>, metrics: Array<{ metric: Metric, label: string, figures: number, revised: number, rate: number, medianLagDays: number | null }>, sectors: Array<{ sector: string, companies: number, figures: number, revised: number, rate: number }> } };
+export type HomeQuery = { dataset: { generatedAt: string, companies: number, figures: number, vintages: number, filings: number, earliestFiled: string, latestFiled: string }, revisionStats: { figures: number, revised: number, rate: number, revisedTwice: number, medianLagDays: number | null, byForm: Array<{ form: string, changes: number }>, lagBuckets: Array<{ label: string, changes: number }>, companies: Array<{ ticker: string, name: string, figures: number, revised: number, rate: number, largest: { label: string, periodLabel: string, from: number, to: number, change: number | null } | null }>, metrics: Array<{ metric: Metric, label: string, figures: number, revised: number, rate: number }>, sectors: Array<{ sector: string, companies: number, rate: number }> } };
 
 export type CompanyListQueryVariables = Exact<{ [key: string]: never; }>;
 
@@ -68,6 +68,13 @@ export type DiffQueryVariables = Exact<{
 
 
 export type DiffQuery = { company: { ticker: string, diff: { from: string, to: string, materialCount: number, revised: Array<{ metric: Metric, label: string, period: PeriodType, end: string, periodLabel: string, from: number, to: number, change: number | null, lagDays: number, material: boolean, likelySplit: boolean, derived: boolean, firstReported: { accession: string, form: string, filed: string, period: string, url: string, indexUrl: string }, revisedIn: { accession: string, form: string, filed: string, period: string, url: string, indexUrl: string } }>, added: Array<{ end: string, label: string, derived: boolean, value: number, vintage: { filing: { accession: string, form: string, filed: string, period: string, url: string, indexUrl: string } } }>, filingsBetween: Array<{ accession: string, form: string, filed: string, period: string, url: string, indexUrl: string }> } } | null };
+
+export type RestatementsQueryVariables = Exact<{
+  ticker: string;
+}>;
+
+
+export type RestatementsQuery = { company: { ticker: string, restatements: Array<{ filed: string, previous: string, count: number, filings: Array<{ form: string }>, largest: { metric: Metric, label: string, periodLabel: string, from: number, to: number, change: number | null } }> } | null };
 
 export type ScreenerQueryVariables = Exact<{ [key: string]: never; }>;
 

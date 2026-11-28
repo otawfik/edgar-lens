@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { FIXTURE_ENTRY, FIXTURE_FACTS, FIXTURE_SUBMISSIONS, M } from "@/test/fixtures";
 import { buildCompany } from "../edgar/normalize";
 import { buildFinancials, lookupFor, valueAt, yearsBefore } from "./derive";
-import { computeRatio, median, rankAmong, type Lookup } from "./ratios";
+import { computeRatio, type Lookup } from "./ratios";
 
 const fin = buildFinancials(buildCompany(FIXTURE_ENTRY, 1, [FIXTURE_FACTS], [FIXTURE_SUBMISSIONS]).company);
 
@@ -40,19 +40,6 @@ describe("computeRatio", () => {
   it("is annual-only for averaged or multi-year ratios", () => {
     expect(computeRatio("roe", lookup({ netIncome: [1], equity: [10] }), "general", "quarterly")).toBeNull();
     expect(computeRatio("revenueCagr3y", lookup({ revenue: [2, 1, 1, 1] }), "general", "quarterly")).toBeNull();
-  });
-});
-
-describe("rankAmong / median", () => {
-  it("ranks in the preferred direction, ties sharing the better rank", () => {
-    expect(rankAmong(0.3, [0.1, 0.3, 0.5], "higher")).toEqual({ rank: 2, of: 3, percentile: 0.5 });
-    expect(rankAmong(0.1, [0.1, 0.3, 0.5], "lower")).toEqual({ rank: 1, of: 3, percentile: 1 });
-    expect(rankAmong(0.3, [0.3, 0.3, 0.5], "higher").rank).toBe(2);
-  });
-  it("takes the median of an even or odd list", () => {
-    expect(median([3, 1, 2])).toBe(2);
-    expect(median([4, 1, 3, 2])).toBe(2.5);
-    expect(median([])).toBeNull();
   });
 });
 

@@ -7,7 +7,7 @@ import type { PeriodType as SnapshotPeriod, SnapshotCompany } from "@/lib/edgar/
 import { periodLabel, type CompanyFinancials, type DerivedMetricId, type FinVintage } from "@/lib/finance/derive";
 import { RATIO_IDS, RATIOS, type RatioId } from "@/lib/finance/ratios";
 import { fromEnum, toEnum } from "@/lib/enums";
-import { countsAsRevision, metricLabel, metricUnit, type Dataset, type PointView, type RevisionView } from "../dataset";
+import { countsAsRevision, metricLabel, metricUnit, type PointView, type RevisionView } from "../dataset";
 import type {
   BusinessModel,
   CompanyFilter,
@@ -115,7 +115,7 @@ function revisionFromLog(c: SnapshotCompany, r: MaterialRevision): Revision {
   };
 }
 
-function matchesFilter(ds: Dataset, fin: CompanyFinancials, filter: CompanyFilter): boolean {
+function matchesFilter(fin: CompanyFinancials, filter: CompanyFilter): boolean {
   const c = fin.company;
   if (filter.sectors?.length && !filter.sectors.includes(c.sector)) return false;
   if (filter.models?.length && !filter.models.includes(modelEnum(c.model))) return false;
@@ -123,12 +123,6 @@ function matchesFilter(ds: Dataset, fin: CompanyFinancials, filter: CompanyFilte
   if (filter.search) {
     const q = filter.search.trim().toLowerCase();
     if (q && !c.ticker.toLowerCase().includes(q) && !c.name.toLowerCase().includes(q)) return false;
-  }
-  for (const b of filter.ratioBounds ?? []) {
-    const v = ds.latestRatios(fin).get(ratioId(b.ratio));
-    if (v === null || v === undefined) return false;
-    if (b.min !== null && b.min !== undefined && v < b.min) return false;
-    if (b.max !== null && b.max !== undefined && v > b.max) return false;
   }
   return true;
 }
@@ -149,37 +143,10 @@ export const resolvers: Resolvers = {
         latestFiled: s.stats.latestFiled,
       };
     },
-    revisionStats: (_, __, { dataset }) => {
-      const r = dataset.snapshot.revisions;
-      return {
-        ...r,
-        companies: r.companies.map((row) => ({
-          ...row,
-          largest: row.largest
-            ? {
-                metric: metricEnum(row.largest.metric),
-                label: METRICS[row.largest.metric].label,
-                period: periodEnum(row.largest.period),
-                end: row.largest.end,
-                periodLabel: periodLabel(row.largest.period, row.largest.end),
-                from: row.largest.from,
-                to: row.largest.to,
-                change: row.largest.from === 0 ? null : (row.largest.to - row.largest.from) / Math.abs(row.largest.from),
-              }
-            : null,
-        })),
-        metrics: r.metrics.map((m) => ({ ...m, metric: metricEnum(m.metric), label: METRICS[m.metric].label })),
-      };
-    },
-    sectors: (_, __, { dataset }) =>
-      dataset.sectorSummaries().map((s) => ({
-        sector: s.sector,
-        companies: s.companies,
-        medians: s.medians.map((m) => ({ ratio: ratioEnum(m.ratio), value: m.value })),
-      })),
+    revisionStats: (_, __, { dataset }) => dataset.snapshot.revisions,
     companies: (_, { filter, first }, { dataset }) => {
       const n = size("first", first, 200, 200);
-      const list = filter ? dataset.companies.filter((c) => matchesFilter(dataset, c, filter)) : dataset.companies;
+      const list = filter ? dataset.companies.filter((c) => matchesFilter(c, filter)) : dataset.companies;
       return list.slice(0, n);
     },
     company: (_, { ticker }, { dataset }) => dataset.company(ticker) ?? null,
@@ -205,6 +172,27 @@ export const resolvers: Resolvers = {
     ],
   },
 
+  RevisionStats: {
+    metrics: (stats) => stats.metrics.map((m) => ({ ...m, metric: metricEnum(m.metric), label: METRICS[m.metric].label })),
+    // The league table is paged here: the home page shows ten rows, not all of them.
+    companies: (stats, { first }) =>
+      stats.companies.slice(0, size("first", first, 10, 200)).map((row) => ({
+        ...row,
+        largest: row.largest
+          ? {
+              metric: metricEnum(row.largest.metric),
+              label: METRICS[row.largest.metric].label,
+              period: periodEnum(row.largest.period),
+              end: row.largest.end,
+              periodLabel: periodLabel(row.largest.period, row.largest.end),
+              from: row.largest.from,
+              to: row.largest.to,
+              change: row.largest.from === 0 ? null : (row.largest.to - row.largest.from) / Math.abs(row.largest.from),
+            }
+          : null,
+      })),
+  },
+
   Company: {
     cik: (fin) => fin.company.cik,
     ticker: (fin) => fin.company.ticker,
@@ -221,20 +209,6 @@ export const resolvers: Resolvers = {
     },
     latestPeriodEnd: (fin, _, { dataset }) => dataset.latestEnd(fin),
     filingDates: (fin) => fin.filingDates,
-    keyStats: (fin, _, { dataset }) => {
-      const end = dataset.latestEnd(fin);
-      const m = (id: DerivedMetricId) => dataset.metricAt(fin, "annual", end, id);
-      return {
-        fiscalYear: end ? fiscalYearOf(end) : null,
-        periodEnd: end,
-        revenue: m("revenue"),
-        netIncome: m("netIncome"),
-        operatingCashFlow: m("operatingCashFlow"),
-        freeCashFlow: m("freeCashFlow"),
-        totalAssets: m("totalAssets"),
-        ratios: [...dataset.latestRatios(fin)].map(([id, value]) => ({ ratio: ratioEnum(id), value })),
-      };
-    },
     series: (fin, { metric, period, last, asOf }, { dataset }) => {
       const d = date("asOf", asOf);
       return dataset
@@ -274,8 +248,14 @@ export const resolvers: Resolvers = {
       dataset.revisionCells(fin).map((c) => ({ ...c, metric: metricEnum(c.metric), period: periodEnum(c.period) })),
     revisions: (fin, { first }, { dataset }) =>
       dataset.revisionLog(fin).slice(0, size("first", first, 50, 200)).map((r) => revisionFromLog(fin.company, r)),
-    ranking: (fin, _, { dataset }) => dataset.ranking(fin).map((r) => ({ ...r, ratio: ratioEnum(r.ratio) })),
-    peers: (fin, { limit }, { dataset }) => dataset.peers(fin, size("limit", limit, 5, 10)),
+    restatements: (fin, _, { dataset }) =>
+      dataset.restatements(fin).map((e) => ({
+        filed: e.filed,
+        previous: e.previous,
+        filings: e.filings.map((i) => filingOf(fin.company, i)),
+        count: e.count,
+        largest: revisionFromView(fin, e.largest),
+      })),
     changes: (fin, _, { dataset }) => dataset.changes(fin),
     filings: (fin, { first }) => fin.company.recent.slice(0, size("first", first, 8, 20)).map((i) => filingOf(fin.company, i)),
   },

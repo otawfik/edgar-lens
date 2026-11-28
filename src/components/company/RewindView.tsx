@@ -1,5 +1,4 @@
 "use client";
-import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useState } from "react";
 import Alert from "@mui/material/Alert";
@@ -25,21 +24,11 @@ import { figures } from "@/theme/theme";
 import { DateScrubber } from "./DateScrubber";
 import { DiffPanel, RevisionTable } from "./DiffPanel";
 import { LineItemTable } from "./LineItemTable";
+import { MarginChart, MetricChart } from "./MetricChart";
+import { RestatementTimeline } from "./RestatementTimeline";
 import { useRewindUrl } from "./useRewindUrl";
 
 const LAST = { annual: 10, quarterly: 12 } as const;
-
-// The charting library is the largest thing on this page and nothing above
-// the fold needs it, so it arrives in its own chunk. The placeholders are the
-// charts' rendered heights (toolbar + plot + padding), so nothing shifts.
-const MetricChart = dynamic(() => import("./MetricChart").then((m) => m.MetricChart), {
-  ssr: false,
-  loading: () => <Skeleton variant="rounded" height={374} />,
-});
-const MarginChart = dynamic(() => import("./MetricChart").then((m) => m.MarginChart), {
-  ssr: false,
-  loading: () => <Skeleton variant="rounded" height={330} />,
-});
 
 export function RewindView({ ticker }: { ticker: string }) {
   useRewindUrl();
@@ -138,14 +127,16 @@ export function RewindView({ ticker }: { ticker: string }) {
       ) : (
         <>
           <Box sx={{ display: "grid", gridTemplateColumns: { xs: "minmax(0,1fr)", lg: "minmax(0,3fr) minmax(0,2fr)" }, gap: 2.5 }}>
-            <MetricChart asOfData={company} latestData={latest} asOf={asOf} />
-            <MarginChart data={company} />
+            <MetricChart asOfData={company} latestData={latest} asOf={asOf} period={period === "quarterly" ? "quarter" : "fiscal year"} />
+            <MarginChart data={company} period={period === "quarterly" ? "quarter" : "fiscal year"} />
           </Box>
-          <LineItemTable asOfData={company} latestData={latest} asOf={asOf} />
         </>
       )}
 
+      <RestatementTimeline ticker={ticker} filingDates={company.filingDates} />
       <DiffPanel ticker={ticker} filingDates={company.filingDates} />
+
+      {!empty && <LineItemTable asOfData={company} latestData={latest} asOf={asOf} />}
 
       <Paper sx={{ p: 2 }}>
         <Box sx={{ display: "flex", flexWrap: "wrap", gap: 1, alignItems: "baseline", mb: 1 }}>
