@@ -1,7 +1,8 @@
 /**
- * Query sanity limits. The schema is small, but `Company.peers` returns
- * companies, which have peers, which have peers… so an unbounded query could
- * fan out to every company × every series many times over. Two guards:
+ * Query sanity limits. The schema is small, but it has a cycle (a company's
+ * latest `changes` point back to the company) and nested lists (companies ×
+ * line items × periods × vintages), so an unbounded query could fan out to
+ * every figure many times over. Two guards:
  *
  * - depthLimit: a validation rule rejecting selections nested too deeply.
  * - estimateCost: a static cost estimate (each field 1, list fields multiplied

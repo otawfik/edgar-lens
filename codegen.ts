@@ -17,6 +17,7 @@ const config: CodegenConfig = {
         mappers: {
           Company: "@/lib/finance/derive#CompanyFinancials",
           FilingChange: "@/server/dataset#FilingChange",
+          RevisionStats: "@/lib/edgar/snapshot#RevisionStats",
         },
         mapperTypeSuffix: "Model",
         enumsAsTypes: true,

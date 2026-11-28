@@ -216,33 +216,3 @@ export function computeRatio(
 export function ratioApplies(id: RatioId, model: BusinessModel): boolean {
   return RATIOS[id].models.includes(model);
 }
-
-export function median(values: number[]): number | null {
-  if (!values.length) return null;
-  const s = [...values].sort((a, b) => a - b);
-  const mid = s.length >> 1;
-  return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
-}
-
-export interface Rank {
-  rank: number;
-  of: number;
-  /** Share of the other peers this company beats, 0..1. */
-  percentile: number;
-}
-
-/**
- * Rank `value` among `peerValues` (which include it) in the ratio's preferred
- * direction. Ties share the better rank.
- */
-export function rankAmong(value: number, peerValues: number[], better: "higher" | "lower"): Rank {
-  const beats = (a: number, b: number) => (better === "higher" ? a > b : a < b);
-  const ahead = peerValues.filter((v) => beats(v, value)).length;
-  const behind = peerValues.filter((v) => beats(value, v)).length;
-  const others = peerValues.length - 1;
-  return {
-    rank: ahead + 1,
-    of: peerValues.length,
-    percentile: others > 0 ? behind / others : 1,
-  };
-}

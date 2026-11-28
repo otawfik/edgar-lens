@@ -1,5 +1,5 @@
 import { createApi } from "@reduxjs/toolkit/query/react";
-import { COMPANY, COMPANY_LIST, DIFF, HOME, SCREENER } from "@/graphql/operations";
+import { COMPANY, COMPANY_LIST, DIFF, HOME, RESTATEMENTS, SCREENER } from "@/graphql/operations";
 import type {
   CompanyListQuery,
   CompanyQuery,
@@ -7,6 +7,8 @@ import type {
   DiffQuery,
   DiffQueryVariables,
   HomeQuery,
+  RestatementsQuery,
+  RestatementsQueryVariables,
   ScreenerQuery,
 } from "@/graphql/types.generated";
 import { graphqlBaseQuery } from "./graphqlBaseQuery";
@@ -36,10 +38,13 @@ export const api = createApi({
     diff: build.query<DiffQuery, DiffQueryVariables>({
       query: (variables) => ({ document: DIFF, variables }),
     }),
+    restatements: build.query<RestatementsQuery, RestatementsQueryVariables>({
+      query: (variables) => ({ document: RESTATEMENTS, variables }),
+    }),
     screener: build.query<ScreenerQuery, void>({
       query: () => ({ document: SCREENER }),
     }),
   }),
 });
 
-export const { useHomeQuery, useCompanyListQuery, useCompanyQuery, useDiffQuery, useScreenerQuery } = api;
+export const { useHomeQuery, useCompanyListQuery, useCompanyQuery, useDiffQuery, useRestatementsQuery, useScreenerQuery } = api;

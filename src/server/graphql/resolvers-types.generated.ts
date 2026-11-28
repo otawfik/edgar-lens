@@ -1,6 +1,7 @@
 import type { GraphQLResolveInfo } from 'graphql';
 import type { CompanyFinancials as CompanyFinancialsModel } from '@/lib/finance/derive';
 import type { FilingChange as FilingChangeModel } from '@/server/dataset';
+import type { RevisionStats as RevisionStatsModel } from '@/lib/edgar/snapshot';
 import type { GraphQLContext } from './context';
 export type Maybe<T> = T | null | undefined;
 export type InputMaybe<T> = T | null | undefined;
@@ -47,8 +48,6 @@ export type Company = {
   /** MMDD, e.g. 0927 for Apple. */
   fiscalYearEnd: Scalars['String']['output'];
   industry: Scalars['String']['output'];
-  /** Latest fiscal-year figures, for screening. */
-  keyStats: KeyStats;
   /** Latest fiscal year (calendar-aligned: years ending Jan–May belong to the prior year). */
   latestFiscalYear?: Maybe<Scalars['Int']['output']>;
   latestPeriodEnd?: Maybe<Scalars['String']['output']>;
@@ -56,11 +55,12 @@ export type Company = {
   lineItems: Array<LineItem>;
   model: BusinessModel;
   name: Scalars['String']['output'];
-  /** Same-sector companies closest in revenue. Max 10. */
-  peers: Array<Company>;
-  /** Rank within GICS sector on each applicable ratio (latest figures). */
-  ranking: Array<RatioRank>;
   ratio: Array<RatioPoint>;
+  /**
+   * Every filing date on which previously reported figures were materially
+   * changed, oldest first: the company's restatement timeline.
+   */
+  restatements: Array<Restatement>;
   /**
    * Reported figures per (line item, period type) with the delay of each one's
    * first material change. Any revision rate — by line item, by period type, by
@@ -98,11 +98,6 @@ export type CompanyLineItemsArgs = {
 };
 
 
-export type CompanyPeersArgs = {
-  limit?: InputMaybe<Scalars['Int']['input']>;
-};
-
-
 export type CompanyRatioArgs = {
   asOf?: InputMaybe<Scalars['String']['input']>;
   id: Ratio;
@@ -125,8 +120,6 @@ export type CompanySeriesArgs = {
 
 export type CompanyFilter = {
   models?: InputMaybe<Array<BusinessModel>>;
-  /** Every bound must hold on the latest fiscal year (null ratios fail a bound). */
-  ratioBounds?: InputMaybe<Array<RatioBound>>;
   /** Matches ticker or name, case-insensitive. */
   search?: InputMaybe<Scalars['String']['input']>;
   sectors?: InputMaybe<Array<Scalars['String']['input']>>;
@@ -221,18 +214,6 @@ export type FormCount = {
   __typename?: 'FormCount';
   changes: Scalars['Int']['output'];
   form: Scalars['String']['output'];
-};
-
-export type KeyStats = {
-  __typename?: 'KeyStats';
-  fiscalYear?: Maybe<Scalars['Int']['output']>;
-  freeCashFlow?: Maybe<Scalars['Float']['output']>;
-  netIncome?: Maybe<Scalars['Float']['output']>;
-  operatingCashFlow?: Maybe<Scalars['Float']['output']>;
-  periodEnd?: Maybe<Scalars['String']['output']>;
-  ratios: Array<RatioValue>;
-  revenue?: Maybe<Scalars['Float']['output']>;
-  totalAssets?: Maybe<Scalars['Float']['output']>;
 };
 
 export type LagBucket = {
@@ -337,8 +318,6 @@ export type Query = {
   ratioDefinitions: Array<RatioDefinition>;
   /** Snapshot-wide revision statistics and league tables, computed at build time. */
   revisionStats: RevisionStats;
-  /** GICS sectors with company counts and median latest-fiscal-year ratios. */
-  sectors: Array<SectorSummary>;
 };
 
 
@@ -396,12 +375,6 @@ export type Ratio =
   | 'ROE'
   | 'SBC_TO_REVENUE';
 
-export type RatioBound = {
-  max?: InputMaybe<Scalars['Float']['input']>;
-  min?: InputMaybe<Scalars['Float']['input']>;
-  ratio: Ratio;
-};
-
 export type RatioChange = {
   __typename?: 'RatioChange';
   /** Change in the ratio versus a year earlier (0.0123 = +123 bps). */
@@ -435,21 +408,18 @@ export type RatioPoint = {
   value?: Maybe<Scalars['Float']['output']>;
 };
 
-export type RatioRank = {
-  __typename?: 'RatioRank';
-  of: Scalars['Int']['output'];
-  /** Share of sector peers this company beats (0–1). */
-  percentile?: Maybe<Scalars['Float']['output']>;
-  rank?: Maybe<Scalars['Int']['output']>;
-  ratio: Ratio;
-  sectorMedian?: Maybe<Scalars['Float']['output']>;
-  value?: Maybe<Scalars['Float']['output']>;
-};
-
-export type RatioValue = {
-  __typename?: 'RatioValue';
-  ratio: Ratio;
-  value?: Maybe<Scalars['Float']['output']>;
+export type Restatement = {
+  __typename?: 'Restatement';
+  /** Reported figures materially changed on that date; equals that diff's materialCount. */
+  count: Scalars['Int']['output'];
+  /** The filing date on which the figures changed. */
+  filed: Scalars['String']['output'];
+  /** The 10-K/10-Q filings made on that date. */
+  filings: Array<Filing>;
+  /** The largest relative change among them. */
+  largest: Revision;
+  /** The filing date before it. diff(from: previous, to: filed) lists exactly these changes. */
+  previous: Scalars['String']['output'];
 };
 
 export type Revision = {
@@ -488,7 +458,7 @@ export type RevisionCell = {
 export type RevisionStats = {
   __typename?: 'RevisionStats';
   byForm: Array<FormCount>;
-  /** Every company, highest revision rate first. */
+  /** Companies by revision rate, highest first. Max 200. */
   companies: Array<CompanyLeagueRow>;
   figures: Scalars['Int']['output'];
   lagBuckets: Array<LagBucket>;
@@ -500,19 +470,17 @@ export type RevisionStats = {
   sectors: Array<SectorLeagueRow>;
 };
 
+
+export type RevisionStatsCompaniesArgs = {
+  first?: InputMaybe<Scalars['Int']['input']>;
+};
+
 export type SectorLeagueRow = {
   __typename?: 'SectorLeagueRow';
   companies: Scalars['Int']['output'];
   figures: Scalars['Int']['output'];
   rate: Scalars['Float']['output'];
   revised: Scalars['Int']['output'];
-  sector: Scalars['String']['output'];
-};
-
-export type SectorSummary = {
-  __typename?: 'SectorSummary';
-  companies: Scalars['Int']['output'];
-  medians: Array<RatioValue>;
   sector: Scalars['String']['output'];
 };
 
@@ -610,7 +578,6 @@ export type ResolversTypes = {
   Float: ResolverTypeWrapper<Scalars['Float']['output']>;
   FormCount: ResolverTypeWrapper<FormCount>;
   Int: ResolverTypeWrapper<Scalars['Int']['output']>;
-  KeyStats: ResolverTypeWrapper<KeyStats>;
   LagBucket: ResolverTypeWrapper<LagBucket>;
   LargestRevision: ResolverTypeWrapper<LargestRevision>;
   LineItem: ResolverTypeWrapper<LineItem>;
@@ -621,18 +588,15 @@ export type ResolversTypes = {
   PeriodType: PeriodType;
   Query: ResolverTypeWrapper<Record<PropertyKey, never>>;
   Ratio: Ratio;
-  RatioBound: RatioBound;
   RatioChange: ResolverTypeWrapper<RatioChange>;
   RatioDefinition: ResolverTypeWrapper<RatioDefinition>;
   RatioFormat: RatioFormat;
   RatioPoint: ResolverTypeWrapper<RatioPoint>;
-  RatioRank: ResolverTypeWrapper<RatioRank>;
-  RatioValue: ResolverTypeWrapper<RatioValue>;
+  Restatement: ResolverTypeWrapper<Restatement>;
   Revision: ResolverTypeWrapper<Revision>;
   RevisionCell: ResolverTypeWrapper<RevisionCell>;
-  RevisionStats: ResolverTypeWrapper<RevisionStats>;
+  RevisionStats: ResolverTypeWrapper<RevisionStatsModel>;
   SectorLeagueRow: ResolverTypeWrapper<SectorLeagueRow>;
-  SectorSummary: ResolverTypeWrapper<SectorSummary>;
   String: ResolverTypeWrapper<Scalars['String']['output']>;
   Vintage: ResolverTypeWrapper<Vintage>;
 };
@@ -651,7 +615,6 @@ export type ResolversParentTypes = {
   Float: Scalars['Float']['output'];
   FormCount: FormCount;
   Int: Scalars['Int']['output'];
-  KeyStats: KeyStats;
   LagBucket: LagBucket;
   LargestRevision: LargestRevision;
   LineItem: LineItem;
@@ -659,17 +622,14 @@ export type ResolversParentTypes = {
   MetricDefinition: MetricDefinition;
   MetricLeagueRow: MetricLeagueRow;
   Query: Record<PropertyKey, never>;
-  RatioBound: RatioBound;
   RatioChange: RatioChange;
   RatioDefinition: RatioDefinition;
   RatioPoint: RatioPoint;
-  RatioRank: RatioRank;
-  RatioValue: RatioValue;
+  Restatement: Restatement;
   Revision: Revision;
   RevisionCell: RevisionCell;
-  RevisionStats: RevisionStats;
+  RevisionStats: RevisionStatsModel;
   SectorLeagueRow: SectorLeagueRow;
-  SectorSummary: SectorSummary;
   String: Scalars['String']['output'];
   Vintage: Vintage;
 };
@@ -691,15 +651,13 @@ export type CompanyResolvers<ContextType = GraphQLContext, ParentType extends Re
   filings?: Resolver<Array<ResolversTypes['Filing']>, ParentType, ContextType, RequireFields<CompanyFilingsArgs, 'first'>>;
   fiscalYearEnd?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
   industry?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
-  keyStats?: Resolver<ResolversTypes['KeyStats'], ParentType, ContextType>;
   latestFiscalYear?: Resolver<Maybe<ResolversTypes['Int']>, ParentType, ContextType>;
   latestPeriodEnd?: Resolver<Maybe<ResolversTypes['String']>, ParentType, ContextType>;
   lineItems?: Resolver<Array<ResolversTypes['LineItem']>, ParentType, ContextType, RequireFields<CompanyLineItemsArgs, 'last' | 'period'>>;
   model?: Resolver<ResolversTypes['BusinessModel'], ParentType, ContextType>;
   name?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
-  peers?: Resolver<Array<ResolversTypes['Company']>, ParentType, ContextType, RequireFields<CompanyPeersArgs, 'limit'>>;
-  ranking?: Resolver<Array<ResolversTypes['RatioRank']>, ParentType, ContextType>;
   ratio?: Resolver<Array<ResolversTypes['RatioPoint']>, ParentType, ContextType, RequireFields<CompanyRatioArgs, 'id' | 'last' | 'period'>>;
+  restatements?: Resolver<Array<ResolversTypes['Restatement']>, ParentType, ContextType>;
   revisionCells?: Resolver<Array<ResolversTypes['RevisionCell']>, ParentType, ContextType>;
   revisionCount?: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
   revisions?: Resolver<Array<ResolversTypes['Revision']>, ParentType, ContextType, RequireFields<CompanyRevisionsArgs, 'first'>>;
@@ -772,17 +730,6 @@ export type FormCountResolvers<ContextType = GraphQLContext, ParentType extends 
   form?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
 };
 
-export type KeyStatsResolvers<ContextType = GraphQLContext, ParentType extends ResolversParentTypes['KeyStats'] = ResolversParentTypes['KeyStats']> = {
-  fiscalYear?: Resolver<Maybe<ResolversTypes['Int']>, ParentType, ContextType>;
-  freeCashFlow?: Resolver<Maybe<ResolversTypes['Float']>, ParentType, ContextType>;
-  netIncome?: Resolver<Maybe<ResolversTypes['Float']>, ParentType, ContextType>;
-  operatingCashFlow?: Resolver<Maybe<ResolversTypes['Float']>, ParentType, ContextType>;
-  periodEnd?: Resolver<Maybe<ResolversTypes['String']>, ParentType, ContextType>;
-  ratios?: Resolver<Array<ResolversTypes['RatioValue']>, ParentType, ContextType>;
-  revenue?: Resolver<Maybe<ResolversTypes['Float']>, ParentType, ContextType>;
-  totalAssets?: Resolver<Maybe<ResolversTypes['Float']>, ParentType, ContextType>;
-};
-
 export type LagBucketResolvers<ContextType = GraphQLContext, ParentType extends ResolversParentTypes['LagBucket'] = ResolversParentTypes['LagBucket']> = {
   changes?: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
   label?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
@@ -839,7 +786,6 @@ export type QueryResolvers<ContextType = GraphQLContext, ParentType extends Reso
   metricDefinitions?: Resolver<Array<ResolversTypes['MetricDefinition']>, ParentType, ContextType>;
   ratioDefinitions?: Resolver<Array<ResolversTypes['RatioDefinition']>, ParentType, ContextType>;
   revisionStats?: Resolver<ResolversTypes['RevisionStats'], ParentType, ContextType>;
-  sectors?: Resolver<Array<ResolversTypes['SectorSummary']>, ParentType, ContextType>;
 };
 
 export type RatioChangeResolvers<ContextType = GraphQLContext, ParentType extends ResolversParentTypes['RatioChange'] = ResolversParentTypes['RatioChange']> = {
@@ -867,18 +813,12 @@ export type RatioPointResolvers<ContextType = GraphQLContext, ParentType extends
   value?: Resolver<Maybe<ResolversTypes['Float']>, ParentType, ContextType>;
 };
 
-export type RatioRankResolvers<ContextType = GraphQLContext, ParentType extends ResolversParentTypes['RatioRank'] = ResolversParentTypes['RatioRank']> = {
-  of?: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
-  percentile?: Resolver<Maybe<ResolversTypes['Float']>, ParentType, ContextType>;
-  rank?: Resolver<Maybe<ResolversTypes['Int']>, ParentType, ContextType>;
-  ratio?: Resolver<ResolversTypes['Ratio'], ParentType, ContextType>;
-  sectorMedian?: Resolver<Maybe<ResolversTypes['Float']>, ParentType, ContextType>;
-  value?: Resolver<Maybe<ResolversTypes['Float']>, ParentType, ContextType>;
-};
-
-export type RatioValueResolvers<ContextType = GraphQLContext, ParentType extends ResolversParentTypes['RatioValue'] = ResolversParentTypes['RatioValue']> = {
-  ratio?: Resolver<ResolversTypes['Ratio'], ParentType, ContextType>;
-  value?: Resolver<Maybe<ResolversTypes['Float']>, ParentType, ContextType>;
+export type RestatementResolvers<ContextType = GraphQLContext, ParentType extends ResolversParentTypes['Restatement'] = ResolversParentTypes['Restatement']> = {
+  count?: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
+  filed?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
+  filings?: Resolver<Array<ResolversTypes['Filing']>, ParentType, ContextType>;
+  largest?: Resolver<ResolversTypes['Revision'], ParentType, ContextType>;
+  previous?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
 };
 
 export type RevisionResolvers<ContextType = GraphQLContext, ParentType extends ResolversParentTypes['Revision'] = ResolversParentTypes['Revision']> = {
@@ -907,7 +847,7 @@ export type RevisionCellResolvers<ContextType = GraphQLContext, ParentType exten
 
 export type RevisionStatsResolvers<ContextType = GraphQLContext, ParentType extends ResolversParentTypes['RevisionStats'] = ResolversParentTypes['RevisionStats']> = {
   byForm?: Resolver<Array<ResolversTypes['FormCount']>, ParentType, ContextType>;
-  companies?: Resolver<Array<ResolversTypes['CompanyLeagueRow']>, ParentType, ContextType>;
+  companies?: Resolver<Array<ResolversTypes['CompanyLeagueRow']>, ParentType, ContextType, RequireFields<RevisionStatsCompaniesArgs, 'first'>>;
   figures?: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
   lagBuckets?: Resolver<Array<ResolversTypes['LagBucket']>, ParentType, ContextType>;
   medianLagDays?: Resolver<Maybe<ResolversTypes['Float']>, ParentType, ContextType>;
@@ -926,12 +866,6 @@ export type SectorLeagueRowResolvers<ContextType = GraphQLContext, ParentType ex
   sector?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
 };
 
-export type SectorSummaryResolvers<ContextType = GraphQLContext, ParentType extends ResolversParentTypes['SectorSummary'] = ResolversParentTypes['SectorSummary']> = {
-  companies?: Resolver<ResolversTypes['Int'], ParentType, ContextType>;
-  medians?: Resolver<Array<ResolversTypes['RatioValue']>, ParentType, ContextType>;
-  sector?: Resolver<ResolversTypes['String'], ParentType, ContextType>;
-};
-
 export type VintageResolvers<ContextType = GraphQLContext, ParentType extends ResolversParentTypes['Vintage'] = ResolversParentTypes['Vintage']> = {
   filing?: Resolver<ResolversTypes['Filing'], ParentType, ContextType>;
   value?: Resolver<ResolversTypes['Float'], ParentType, ContextType>;
@@ -946,7 +880,6 @@ export type Resolvers<ContextType = GraphQLContext> = {
   Filing?: FilingResolvers<ContextType>;
   FilingChange?: FilingChangeResolvers<ContextType>;
   FormCount?: FormCountResolvers<ContextType>;
-  KeyStats?: KeyStatsResolvers<ContextType>;
   LagBucket?: LagBucketResolvers<ContextType>;
   LargestRevision?: LargestRevisionResolvers<ContextType>;
   LineItem?: LineItemResolvers<ContextType>;
@@ -957,13 +890,11 @@ export type Resolvers<ContextType = GraphQLContext> = {
   RatioChange?: RatioChangeResolvers<ContextType>;
   RatioDefinition?: RatioDefinitionResolvers<ContextType>;
   RatioPoint?: RatioPointResolvers<ContextType>;
-  RatioRank?: RatioRankResolvers<ContextType>;
-  RatioValue?: RatioValueResolvers<ContextType>;
+  Restatement?: RestatementResolvers<ContextType>;
   Revision?: RevisionResolvers<ContextType>;
   RevisionCell?: RevisionCellResolvers<ContextType>;
   RevisionStats?: RevisionStatsResolvers<ContextType>;
   SectorLeagueRow?: SectorLeagueRowResolvers<ContextType>;
-  SectorSummary?: SectorSummaryResolvers<ContextType>;
   Vintage?: VintageResolvers<ContextType>;
 };
 

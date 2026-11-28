@@ -25,8 +25,6 @@ import { CompanySearch } from "../CompanySearch";
 
 type Stats = HomeQuery["revisionStats"];
 
-const TOP = 10;
-
 /** Four numbers do not need a charting library: one bar per delay bucket, scaled to the largest. */
 function LagBars({ buckets }: { buckets: Stats["lagBuckets"] }) {
   const max = Math.max(1, ...buckets.map((b) => b.changes));
@@ -160,11 +158,11 @@ export function RevisionsHome() {
                 <Box sx={{ flexGrow: 1 }}>
                   <Typography variant="h3">Who revises most</Typography>
                   <Typography variant="body2" color="text.secondary">
-                    The {TOP} companies with the largest share of reported figures changed by a later filing.
+                    The {data.revisionStats.companies.length} companies with the largest share of reported figures changed by a later filing.
                   </Typography>
                 </Box>
                 <Button component={Link} href="/screener" variant="outlined" size="small">
-                  Screen all {data.revisionStats.companies.length} companies
+                  Screen all {data.dataset.companies} companies
                 </Button>
               </Box>
               <TableContainer>
@@ -179,7 +177,7 @@ export function RevisionsHome() {
                     </TableRow>
                   </TableHead>
                   <TableBody>
-                    {data.revisionStats.companies.slice(0, TOP).map((r) => (
+                    {data.revisionStats.companies.map((r) => (
                       <TableRow key={r.ticker}>
                         <TableCell component="th" scope="row">
                           <Box component={Link} href={`/company/${r.ticker}`} sx={{ fontWeight: 700, color: "primary.main", textDecoration: "none", "&:hover": { textDecoration: "underline" } }}>
